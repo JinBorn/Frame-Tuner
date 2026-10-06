@@ -86,6 +86,8 @@ workspace/projects/<项目ID>/
 
 旧 Lite 数据仍在 `data/lite/` 与 `workspace/lite/`。这些运行数据由 Git 忽略；源素材与导出结果留在本机。需要隔离不同工作台实例或自动化任务时，可设置 `FRAME_TUNER_ROOT` 为独立的数据根目录。
 
+备份前保存并停止服务，完整保留数据根下的 `data/`、`workspace/` 和存在时的 `audio/`，恢复到新的空目录。具体步骤、旧 Lite 入口和外部路径限制见[备份与恢复](docs/backup-and-restore.md)。
+
 更新器只接受 `JinBorn/Frame-Tuner` 的 `main` 分支，并保留工作区干净、仅快进更新的保护；有本地代码修改或分支分叉时不自动覆盖。工作台更新与 skill 安装分开，更新网页不会写入 `.codex`、`.agents`、`.claude`、`.cursor` 或 `.dsh` 的个人配置。Skill 升级需再次运行安装器并明确指定 `--replace`。
 
 ## 维护验证
