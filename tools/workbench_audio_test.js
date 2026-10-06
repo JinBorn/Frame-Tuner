@@ -9,6 +9,18 @@ const { createLiteStore } = require("./frame_tuner_lite/store");
 const { importSheetAudio } = require("./frame_tuner_lite/import_sheet");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "frame-tuner-audio-"));
+function filesSnapshot(directory) {
+  const result = {};
+  function visit(current) {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) visit(full);
+      else result[path.relative(directory, full)] = fs.readFileSync(full).toString("base64");
+    }
+  }
+  visit(directory);
+  return result;
+}
 try {
   const service = createWorkbenchService({ root });
   const projectId = service.createProject({ label: "Audio roundtrip" }).projectId;
@@ -27,6 +39,11 @@ try {
   assert.throws(() => service.importAnimation(payload), (error) => error.code === "sheet_audio_requires_files");
   assert.equal(fs.readFileSync(service.projectData(projectId).paths.manifest, "utf8"), original);
   const audioFiles = [{ file: "../../audio/beep.wav", name: "beep.wav", type: "audio/wav", data: `data:audio/wav;base64,${wav.toString("base64")}` }];
+  const beforeInvalidAudio = filesSnapshot(root);
+  assert.throws(() => service.importAnimation({ ...payload, audioFiles: [...audioFiles, ...audioFiles] }), (error) => error.code === "invalid_sheet_audio");
+  const conflictingAudio = { files: [...sheetJson.audio.files, { id: "other", file: "other.wav" }], events: [{ outputFrameIndex: 0, assetId: "sound", file: "other.wav" }] };
+  assert.throws(() => service.importAnimation({ ...payload, audioFiles: [...audioFiles, { ...audioFiles[0], file: "other.wav" }], sheetJson: { ...sheetJson, audio: conflictingAudio } }), (error) => error.code === "invalid_sheet_audio");
+  assert.deepEqual(filesSnapshot(root), beforeInvalidAudio, "Duplicate uploads and conflicting event references have no filesystem side effects");
   assert.throws(() => service.importAnimation({ ...payload, audioFiles, sheetJson: { ...sheetJson, audio: { ...sheetJson.audio, events: [{ outputFrameIndex: 3, assetId: "sound" }] } } }), /invalid frame/);
   assert.equal(fs.readFileSync(service.projectData(projectId).paths.manifest, "utf8"), original);
   const result = service.importAnimation({ ...payload, audioFiles });
@@ -38,8 +55,17 @@ try {
   assert.equal(saved.frameAudioBindings[0].frame, 0);
   assert.deepEqual(fs.readFileSync(path.join(root, saved.frameAudioBindings[0].path)), wav);
   assert.equal(path.isAbsolute(saved.frameAudioBindings[0].path), false);
+  Object.assign(saved.manifest.profiles[0].animations[0], { type: "vfx", sourceAnchor: { x: 100, y: 200 }, defaultScale: 2 });
+  service.store.writeJson(saved.paths.manifest, saved.manifest);
   service.importAnimation({ ...payload, audioFiles, replace: true });
-  assert.equal(service.projectData(projectId).frameAudioBindings.length, 1, "Explicit reimport does not duplicate SFX");
+  const replaced = service.projectData(projectId);
+  assert.equal(replaced.frameAudioBindings.length, 1, "Explicit reimport does not duplicate SFX");
+  assert.equal(replaced.frameAudioBindings[0].groupType, "vfx", "Imported audio follows the preserved action type");
+  assert.equal(replaced.frameAudioBindings[0].key.split(":")[3], "vfx");
+  assert.deepEqual(replaced.manifest.profiles[0].animations[0].sourceAnchor, sheetJson.meta.origin, "New Sheet origin overrides the previous artwork's origin");
+  assert.equal(replaced.manifest.profiles[0].animations[0].defaultScale, 2, "Action-level transforms survive sheet replacement");
+  service.importAnimation({ ...payload, audioFiles, replace: true, sheetJson: { ...sheetJson, meta: {} } });
+  assert.equal(service.projectData(projectId).manifest.profiles[0].animations[0].sourceAnchor, undefined, "A Sheet without an origin does not inherit the old artwork's origin");
 
   const liteStore = createLiteStore(root);
   const legacy = liteStore.ensureProject("legacy");

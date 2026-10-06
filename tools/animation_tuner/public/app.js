@@ -134,6 +134,8 @@ const I18N = {
     frameSfxDeleteConfirm: "删除这一帧的音效？",
     frameSfxDeleted: "已删除帧音效",
     frameSfxDeleteFailed: "帧音效删除失败：{message}",
+    frameSfxSyncRetry: "音效同步失败：{message}。音效编辑仍保留，可点击“保存调参”重试。",
+    frameSfxExportUnavailable: "音效文件尚未完成读取，请先保存调参后再导出。",
     frameSfxRestoreFailed: "帧音效恢复失败：{message}",
     frameSfxSessionOnly: "帧音效只会保留在本次会话：{message}",
     frameSfxSaved: "帧音效已保存到项目：{count}",
@@ -295,6 +297,8 @@ const I18N = {
     frameSfxDeleteConfirm: "Delete this frame SFX?",
     frameSfxDeleted: "Frame SFX deleted",
     frameSfxDeleteFailed: "Frame SFX delete failed: {message}",
+    frameSfxSyncRetry: "Audio sync failed: {message}. Your audio edit is retained; click Save tuning to retry.",
+    frameSfxExportUnavailable: "The audio file has not finished loading. Save tuning before exporting.",
     frameSfxRestoreFailed: "Frame SFX restore failed: {message}",
     frameSfxSessionOnly: "Frame SFX will stay for this session only: {message}",
     frameSfxSaved: "Frame SFX saved to project: {count}",
@@ -515,6 +519,7 @@ const FRAME_AUDIO_STORE = "frameAudio";
 const LAYER_CARD_DRAG_TYPE = "application/x-xsxb-layer-card";
 let frameAudioDbPromise = null;
 let frameAudioSyncPromise = null;
+let frameAudioEditsInFlight = 0;
 let layerCardDrag = null;
 let showBoxes = localStorage.getItem(BOX_PREF_KEYS.show) === "true";
 let boxOnlyMode = false;
@@ -774,7 +779,8 @@ function loadedStatusText() {
 
 function updateSaveState() {
   if (!els.saveState || !els.save) return;
-  const label = saveInFlight
+  const saving = saveInFlight || frameAudioOperationPending();
+  const label = saving
     ? t("saving")
     : dirty
       ? t("unsavedChanges")
@@ -783,8 +789,8 @@ function updateSaveState() {
         : t("noChanges");
   els.saveState.textContent = label;
   els.saveState.classList.toggle("dirty", dirty);
-  els.save.disabled = saveInFlight;
-  els.save.textContent = saveInFlight ? t("saving") : dirty ? t("saveTuningDirty") : t("saveTuning");
+  els.save.disabled = saving;
+  els.save.textContent = saving ? t("saving") : dirty ? t("saveTuningDirty") : t("saveTuning");
   document.body.classList.toggle("hasUnsavedChanges", dirty);
   renderTunerUpdateStatus();
 }
@@ -1431,6 +1437,9 @@ async function loadFrameAudioBindingsFromDb() {
       const recordKey = canonicalFrameBindingKey(record.key, recordMetadata || {});
       const existing = frameAudioBindings[recordKey];
       if (!existing) continue;
+      // Project imports can replace the bytes for an existing frame key.
+      // IndexedDB is only a fallback for bindings without a persisted asset.
+      if (existing.path || existing.file) continue;
       const metadata = frameBindingMetadataFromRecord(existing)
         || recordMetadata
         || frameAudioMetadataFromKey(recordKey);
@@ -1445,6 +1454,7 @@ async function loadFrameAudioBindingsFromDb() {
         size: Number(existing.size || record.size || 0),
         metadata,
         blob: record.blob,
+        data: await blobToDataUrl(record.blob),
         path: existing.path || existing.file || "",
       };
     }
@@ -1457,7 +1467,7 @@ async function setFrameAudioBinding(file, index = selectedFrame, group = current
   if (!file || !group) return;
   const key = frameAudioKey(index, group);
   revokeFrameAudioBinding(frameAudioBindings[key]);
-  frameAudioBindings[key] = {
+  const binding = {
     key,
     name: file.name || "audio",
     url: URL.createObjectURL(file),
@@ -1466,7 +1476,11 @@ async function setFrameAudioBinding(file, index = selectedFrame, group = current
     metadata: frameAudioMetadata(index, group),
     blob: file,
   };
-  await saveFrameAudioBindingToDb(key, frameAudioBindings[key]);
+  frameAudioBindings[key] = binding;
+  // Keep serializable bytes even if server persistence fails. Export snapshots
+  // omit Blob/object URLs, and must still describe the sound being previewed.
+  binding.data = await blobToDataUrl(file);
+  await saveFrameAudioBindingToDb(key, binding);
 }
 
 async function clearFrameAudioBinding(index = selectedFrame, group = currentGroup) {
@@ -1510,6 +1524,7 @@ async function collectFrameAudioBindingsForSave() {
     const frame = Number(metadata.frame);
     if (!Number.isFinite(frame)) continue;
     const data = binding?.blob ? await blobToDataUrl(binding.blob) : String(binding?.data || "");
+    if (data && frameAudioBindings[key] === binding) binding.data = data;
     const existingPath = String(binding?.path || binding?.file || "");
     if (!data && !existingPath) continue;
     const canonicalKey = canonicalFrameBindingKey(key, metadata);
@@ -1529,10 +1544,15 @@ async function collectFrameAudioBindingsForSave() {
   return result;
 }
 
+function frameAudioOperationPending() {
+  return frameAudioEditsInFlight > 0 || frameAudioSyncPromise !== null;
+}
+
 async function syncFrameAudioBindingsToGame(options = {}) {
   const silent = options.silent === true;
-  if (frameAudioSyncPromise) await frameAudioSyncPromise.catch(() => {});
-  frameAudioSyncPromise = (async () => {
+  const previous = frameAudioSyncPromise;
+  const operation = Promise.resolve(previous).catch(() => {}).then(async () => {
+    const sourceBindings = new Map(Object.entries(frameAudioBindings));
     const bindings = await collectFrameAudioBindingsForSave();
     const res = await fetch("/api/frame-audio", {
       method: "POST",
@@ -1556,17 +1576,20 @@ async function syncFrameAudioBindingsToGame(options = {}) {
     if (Array.isArray(result.frameAudioBindings)) {
       for (const saved of result.frameAudioBindings) {
         const key = frameAudioKeyFromBinding(saved);
-        if (!key || !frameAudioBindings[key]) continue;
+        if (!key || frameAudioBindings[key] !== sourceBindings.get(key)) continue;
         frameAudioBindings[key] = { ...frameAudioBindings[key], ...saved, key };
       }
     }
     if (!silent) status(t("frameSfxSaved", { count: result.frameAudioCount || 0 }));
     return result;
-  })();
+  });
+  frameAudioSyncPromise = operation;
+  updateSaveState();
   try {
-    return await frameAudioSyncPromise;
+    return await operation;
   } finally {
-    frameAudioSyncPromise = null;
+    if (frameAudioSyncPromise === operation) frameAudioSyncPromise = null;
+    updateSaveState();
   }
 }
 
@@ -1739,7 +1762,7 @@ function resetProjectSession() {
 }
 
 function discardGuard() {
-  if (saveInFlight || projectOperationInFlight || portableExportBusy()) {
+  if (saveInFlight || frameAudioOperationPending() || projectOperationInFlight || portableExportBusy()) {
     status(language === "en" ? "Please wait for the current operation to finish." : "请等待当前保存或加载完成。");
     return null;
   }
@@ -1749,7 +1772,7 @@ function discardGuard() {
 
 async function reloadWorkbench(projectId = activeProjectId(), options = {}) {
   const token = options.discardToken || discardGuard();
-  if (!token || saveInFlight || projectOperationInFlight || portableExportBusy()) return false;
+  if (!token || saveInFlight || frameAudioOperationPending() || projectOperationInFlight || portableExportBusy()) return false;
   if (token.projectId !== activeProjectId() || token.revision !== dirtyRevision) {
     status(language === "en" ? "Edits changed during the operation. Save and reload again." : "操作期间又产生了编辑，请先保存后重新加载。");
     return false;
@@ -5624,6 +5647,15 @@ function exportFrameMetadata(sample, options = {}) {
 }
 
 function exportProjectSnapshot() {
+  const audio = Object.values(frameAudioBindings).map(({ blob, url, objectUrl, audio, ...binding }) => {
+    if (blob && !binding.data) throw new Error(t("frameSfxExportUnavailable"));
+    if (binding.data) {
+      // The in-memory replacement takes precedence over a previous disk path.
+      delete binding.path;
+      delete binding.file;
+    }
+    return binding;
+  });
   return structuredClone({
     format: "frame-tuner-editor-snapshot",
     version: 1,
@@ -5641,7 +5673,7 @@ function exportProjectSnapshot() {
       attack_vfx_playback_overrides: vfxPlaybackOverrides,
       frame_box_overrides: frameBoxOverrides,
     },
-    frameAudioBindings: Object.values(frameAudioBindings).map(({ blob, url, objectUrl, audio, ...binding }) => binding),
+    frameAudioBindings: audio,
     frameImageAttachments: collectFrameImageAttachmentsForSave(),
     attackTrails: attackTrailEditor?.serialize(),
     settings: config?.liteSettings || {},
@@ -6573,7 +6605,7 @@ async function syncUnityBakedFramesNow() {
 }
 
 async function save() {
-  if (saveInFlight || projectOperationInFlight || portableExportBusy() || !config) return;
+  if (saveInFlight || frameAudioOperationPending() || projectOperationInFlight || portableExportBusy() || !config) return;
   saveInFlight = true;
   updateSaveState();
   try {
@@ -7046,23 +7078,28 @@ function collectFrameImageAttachmentsForSave() {
 async function bindFrameAudioFile(file, index = selectedFrame, group = currentGroup) {
   if (!file || !group) return false;
   const frameIndex = clampFrameIndex(index, group);
-  await setFrameAudioBinding(file, frameIndex, group);
+  frameAudioEditsInFlight += 1;
   markDirty();
-  await syncFrameAudioBindingsToGame().catch((error) => {
-    status(t("boxSyncFailed", { message: error.message }));
-  });
+  let syncError = null;
+  try {
+    await setFrameAudioBinding(file, frameIndex, group);
+    await syncFrameAudioBindingsToGame();
+  } catch (error) {
+    syncError = error;
+  } finally {
+    frameAudioEditsInFlight -= 1;
+    updateSaveState();
+  }
   clearSelectedAttachment();
   if (els.frameAudioFile) els.frameAudioFile.value = "";
   if (group.uiId === currentGroup?.uiId) {
     setSingleFrameSelection(frameIndex, currentGroup);
     syncFrameInputs();
-  } else {
-    syncFrameAudioInputs();
-  }
+  } else syncFrameAudioInputs();
   renderFilmstrip();
   draw();
-  status(t("boundFrameSfx", { name: file.name }));
-  return true;
+  status(syncError ? t("frameSfxSyncRetry", { message: syncError.message }) : t("boundFrameSfx", { name: file.name }));
+  return !syncError;
 }
 
 async function removeFrameAudioFromCard(index = selectedFrame, group = currentGroup) {
@@ -7070,16 +7107,23 @@ async function removeFrameAudioFromCard(index = selectedFrame, group = currentGr
   const frameIndex = clampFrameIndex(index, group);
   if (!frameAudioBinding(frameIndex, group)) return false;
   if (!window.confirm(t("frameSfxDeleteConfirm"))) return false;
-  await clearFrameAudioBinding(frameIndex, group);
+  frameAudioEditsInFlight += 1;
   markDirty();
-  await syncFrameAudioBindingsToGame({ allowEmpty: true }).catch((error) => {
-    status(t("frameSfxDeleteFailed", { message: error.message }));
-  });
+  let syncError = null;
+  try {
+    await clearFrameAudioBinding(frameIndex, group);
+    await syncFrameAudioBindingsToGame({ allowEmpty: true });
+  } catch (error) {
+    syncError = error;
+  } finally {
+    frameAudioEditsInFlight -= 1;
+    updateSaveState();
+  }
   syncFrameAudioInputs();
   renderFilmstrip();
   draw();
-  status(t("frameSfxDeleted"));
-  return true;
+  status(syncError ? t("frameSfxSyncRetry", { message: syncError.message }) : t("frameSfxDeleted"));
+  return !syncError;
 }
 
 function isTypingTarget(event) {
@@ -7779,7 +7823,7 @@ window.XsxbFrameTunerLite = {
     frameCount: currentGroup?.frames?.length || 0,
     frameIndex: selectedFrame,
     dirty,
-    saving: saveInFlight,
+    saving: saveInFlight || frameAudioOperationPending(),
     loading: selectionLoading || projectOperationInFlight,
     exporting: portableExportBusy(),
     loop: currentGroup?.loop !== false,

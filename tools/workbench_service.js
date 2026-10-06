@@ -75,7 +75,7 @@ function sheetOrigin(raw) {
 
 const AUDIO_TYPES = Object.freeze({ ".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".opus": "audio/ogg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac", ".webm": "audio/webm" });
 
-// The CLI supplies bytes, never a path for the service to read. Validate the whole
+// The browser or CLI supplies bytes, never a path for the service to read. Validate the whole
 // audio contract before writing any imported frames or changing authored JSON.
 function prepareSheetAudio(raw, supplied, frameCount) {
   const sheet = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -83,15 +83,21 @@ function prepareSheetAudio(raw, supplied, frameCount) {
   const descriptors = sheet.audio.files ?? [], sourceEvents = sheet.audio.events ?? [];
   if (!Array.isArray(descriptors) || !Array.isArray(sourceEvents)) fail("Sheet audio files and events must be arrays.", "invalid_sheet_audio");
   if (!descriptors.length && !sourceEvents.length) return { assets: [], events: [] };
-  if (!Array.isArray(supplied) || !supplied.length) fail("This sheet references audio files. Supply its accompanying audio files through the CLI, or import with the legacy Lite sheet importer.", "sheet_audio_requires_files");
+  if (!Array.isArray(supplied) || !supplied.length) fail("This sheet references audio files. Select the accompanying audio files in the import dialog, or supply them through the CLI.", "sheet_audio_requires_files");
+  const suppliedByFile = new Map();
+  for (const entry of supplied) {
+    const file = String(entry?.file || "");
+    if (!file || suppliedByFile.has(file)) fail(`Duplicate or empty uploaded audio reference: ${file}`, "invalid_sheet_audio");
+    suppliedByFile.set(file, entry);
+  }
   const assets = [], byFile = new Map(), byId = new Map();
   for (const descriptor of descriptors) {
     const file = String(descriptor?.file || "");
     const extension = path.extname(file).toLowerCase();
     if (!file || /^[a-z][a-z0-9+.-]*:/i.test(file) || /^[\\/]/.test(file) || !AUDIO_TYPES[extension]) fail(`Invalid relative sheet audio file: ${file}`, "invalid_sheet_audio");
     if (byFile.has(file) || (descriptor.id && byId.has(String(descriptor.id)))) fail(`Duplicate sheet audio descriptor: ${file}`, "invalid_sheet_audio");
-    const source = supplied.find((entry) => String(entry?.file || "") === file);
-    if (!source) fail(`Missing sheet audio file: ${file}`, "sheet_audio_requires_files");
+    const source = suppliedByFile.get(file);
+    if (!source) fail(`Missing sheet audio file: ${file}. Select its accompanying audio file in the import dialog.`, "sheet_audio_requires_files");
     const match = /^data:(audio\/[a-z0-9.+-]+)(?:;[^,]*)?;base64,([a-z0-9+/=\r\n]+)$/i.exec(String(source.data || ""));
     if (!match) fail(`Invalid audio data URL: ${file}`, "invalid_sheet_audio");
     const buffer = Buffer.from(match[2], "base64");
@@ -105,7 +111,9 @@ function prepareSheetAudio(raw, supplied, frameCount) {
   const events = sourceEvents.map((event) => {
     const frame = Number(event?.outputFrameIndex ?? (Number(event?.outputFrame) - 1));
     if (!Number.isInteger(frame) || frame < 0 || frame >= frameCount) fail(`Sheet audio event refers to an invalid frame: ${frame}`, "invalid_sheet_audio");
-    const asset = byId.get(String(event.assetId || "")) || byFile.get(String(event.file || ""));
+    const assetById = byId.get(String(event.assetId || "")), assetByFile = byFile.get(String(event.file || ""));
+    if ((event.assetId && !assetById) || (event.file && !assetByFile) || (assetById && assetByFile && assetById !== assetByFile)) fail(`Conflicting or unknown audio reference on frame ${frame + 1}.`, "invalid_sheet_audio");
+    const asset = assetById || assetByFile;
     if (!asset) fail(`Sheet audio event on frame ${frame + 1} has no matching file.`, "invalid_sheet_audio");
     if (usedFrames.has(frame)) fail(`Multiple audio events on frame ${frame + 1} are not supported by the frame-card editor.`, "unsupported_sheet_audio");
     usedFrames.add(frame);
@@ -114,6 +122,75 @@ function prepareSheetAudio(raw, supplied, frameCount) {
     return { frame, asset, volume: Math.min(1, Math.max(0, volume)) };
   });
   return { assets, events };
+}
+
+function bindingTargetsAnimation(entry, projectId, profileId, animationId) {
+  const raw = { ...entry, ...(entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {}) };
+  const animationMatches = (value) => value === animationId || value === `${profileId}/${animationId}`;
+  const projectMatches = (value) => !value || value === "legacy" || value === projectId;
+  if (!projectMatches(String(raw.projectId || ""))) return false;
+  const animation = String(raw.animation || raw.animationId || "");
+  const profile = String(raw.profileId || (animation.includes("/") ? animation.split("/")[0] : ""));
+  if (profile && profile !== profileId) return false;
+  if (animation && !animationMatches(animation)) return false;
+  const frame = raw.frame ?? raw.frameIndex;
+  if (profile === profileId && animationMatches(animation) && frame !== undefined && Number.isInteger(Number(frame)) && Number(frame) >= 0) return true;
+  for (const key of [entry?.key, entry?.frameKey]) {
+    const text = String(key || "");
+    const prefix = `${profileId}/${animationId}:`;
+    if (text.startsWith(prefix) && /^\d+$/.test(text.slice(prefix.length))) return true;
+    const parts = text.split(":");
+    if (!/^\d+$/.test(parts.at(-1) || "")) continue;
+    // Explicitly parse the modern and six-field legacy formats. A source path
+    // containing another animation's name is not an ownership reference.
+    if (parts.length >= 7 && projectMatches(parts[0]) && parts[2] === profileId && animationMatches(parts[4])) return true;
+    if (parts.length === 6 && parts[1] === profileId && animationMatches(parts[3])) return true;
+  }
+  return false;
+}
+
+function commitImportFiles(entries) {
+  const token = crypto.randomBytes(12).toString("hex");
+  const staged = [];
+  let committed = false;
+  let rollbackFailed = false;
+  try {
+    // Stage all bytes and backups first. Synchronous imports cannot interleave
+    // within this process, and a reported filesystem failure restores old files.
+    for (const [filePath, content] of new Map(entries)) {
+      const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
+      const existed = fs.existsSync(filePath);
+      if (existed && fs.readFileSync(filePath).equals(buffer)) continue;
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      const item = { filePath, existed, next: `${filePath}.import-${token}.tmp`, backup: `${filePath}.import-${token}.bak`, committed: false };
+      staged.push(item);
+      if (existed) fs.copyFileSync(filePath, item.backup, fs.constants.COPYFILE_EXCL);
+      fs.writeFileSync(item.next, buffer, { flag: "wx" });
+    }
+    for (const item of staged) {
+      fs.renameSync(item.next, item.filePath);
+      item.committed = true;
+    }
+    committed = true;
+  } catch (error) {
+    const failures = [];
+    for (const item of [...staged].reverse()) {
+      if (!item.committed) continue;
+      try {
+        if (item.existed) fs.renameSync(item.backup, item.filePath);
+        else fs.unlinkSync(item.filePath);
+      } catch (cause) { failures.push(cause); }
+    }
+    rollbackFailed = failures.length > 0;
+    if (rollbackFailed) throw new AggregateError([error, ...failures], `Import failed and some original files could not be restored. Recovery backups use suffix .import-${token}.bak. ${error.message}`);
+    throw error;
+  } finally {
+    for (const item of staged) {
+      for (const temporary of [item.next, ...(!rollbackFailed || committed ? [item.backup] : [])]) {
+        try { fs.unlinkSync(temporary); } catch (error) { if (error.code !== "ENOENT") console.error(`Import temporary file retained: ${temporary}`); }
+      }
+    }
+  }
 }
 
 function createWorkbenchService(options = {}) {
@@ -176,23 +253,32 @@ function createWorkbenchService(options = {}) {
     const frames = sheet ? sheetFrames(payload.sheetJson, images[0], fps) : images.map((image, index) => ({ id: `frame_${String(index + 1).padStart(4, "0")}`, name: image.name, width: image.width, height: image.height, duration: 1 }));
     const sourceAnchor = sheet ? sheetOrigin(payload.sheetJson) : undefined;
     const importedAudio = sheet ? prepareSheetAudio(payload.sheetJson, payload.audioFiles, frames.length) : { assets: [], events: [] };
-    // Every input and existing JSON file has been checked before touching authored data.
-    // Content-addressed assets also keep replacement failures from modifying old frames.
+    const writes = [];
+    const writeJson = (filePath, value) => writes.push([filePath, `${JSON.stringify(value, null, 2)}\n`]);
     const destination = path.join(data.paths.workspaceDir, "assets", profileId, animationId);
-    fs.mkdirSync(destination, { recursive: true });
     images.forEach((image) => {
       const target = path.join(destination, `${image.hash}.png`);
-      if (!fs.existsSync(target)) fs.writeFileSync(target, image.buffer);
+      writes.push([target, image.buffer]);
       image.path = reslash(path.relative(root, target));
     });
     frames.forEach((frame, index) => { const image = images[sheet ? 0 : index]; frame.path = image.path; frame.assetVersion = image.hash.slice(0, 12); });
     importedAudio.assets.forEach((asset) => {
       const target = path.join(data.paths.workspaceDir, "audio", `${asset.hash}${asset.extension}`);
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      if (!fs.existsSync(target)) fs.writeFileSync(target, asset.buffer);
+      writes.push([target, asset.buffer]);
       asset.path = reslash(path.relative(root, target));
     });
-    const animation = { id: animationId, name: animationId, type: "actor", fps, loop: payload.loop !== false, anchorMode: "canvas_bottom_center", ...(sourceAnchor ? { sourceAnchor } : {}), source: reslash(path.relative(root, destination)), frames };
+    const previousAnimation = existing >= 0 ? profile.animations[existing] : {};
+    // A source anchor belongs to the old artwork. Only the replacement sheet
+    // can provide the pixel origin for its new frames.
+    const animationSettings = { ...previousAnimation };
+    delete animationSettings.sourceAnchor;
+    const animation = {
+      ...animationSettings,
+      id: animationId, name: previousAnimation.name || animationId, type: previousAnimation.type || "actor", fps,
+      loop: payload.loop === undefined ? previousAnimation.loop !== false : payload.loop !== false,
+      anchorMode: previousAnimation.anchorMode || "canvas_bottom_center",
+      ...(sourceAnchor ? { sourceAnchor } : {}), source: reslash(path.relative(root, destination)), frames,
+    };
     if (!profile) {
       profile = { id: profileId, label: profileId, kind: "actor", bodyScale: 1, runtimeScale: 1, supports: ["character_transform", "group_transform", "frame_transform", "frame_playback", "frame_boxes", "reference_frame"], animations: [] };
       manifest.profiles.push(profile);
@@ -203,31 +289,29 @@ function createWorkbenchService(options = {}) {
     // Replacement clears frame-indexed data; it cannot safely refer to a new frame order.
     if (existing >= 0) {
       const key = `${profileId}/${animationId}:`;
-      for (const field of ["frame_visual_overrides", "frame_playback_overrides", "frame_box_overrides"]) {
-        data.tuning[field] = Object.fromEntries(Object.entries(data.tuning[field] || {}).filter(([entry]) => !entry.startsWith(key)));
+      for (const field of ["frame_visual_overrides", "frame_playback_overrides", "frame_box_overrides", "attack_vfx_frame_overrides", "attack_vfx_playback_overrides"]) {
+        data.tuning[field] = Object.fromEntries(Object.entries(data.tuning[field] || {}).filter(([entry]) => !(entry.startsWith(key) && /^\d+$/.test(entry.slice(key.length)))));
       }
-      const belongs = (entry) => {
-        const metadata = entry?.metadata || entry || {};
-        return String(metadata.profileId || "") === profileId && [animationId, `${profileId}/${animationId}`].includes(String(metadata.animation || metadata.animationId || ""));
-      };
-      audio = audio.filter((entry) => !belongs(entry) && !String(entry?.key || "").includes(key));
-      store.writeJson(data.paths.frameImageAttachments, data.frameImageAttachments.filter((entry) => !belongs(entry)));
+      const belongs = (entry) => bindingTargetsAnimation(entry, data.project.id, profileId, animationId);
+      audio = audio.filter((entry) => !belongs(entry));
+      writeJson(data.paths.frameImageAttachments, data.frameImageAttachments.filter((entry) => !belongs(entry)));
       delete data.attackTrails.bindings?.[`${profileId}/${animationId}`];
-      store.writeJson(data.paths.attackTrails, data.attackTrails);
-      store.writeJson(data.paths.tuning, data.tuning);
+      writeJson(data.paths.attackTrails, data.attackTrails);
+      writeJson(data.paths.tuning, data.tuning);
     }
     for (const event of importedAudio.events) {
       audio.push({
-        key: [data.project.id, "player", profileId, "actor", animationId, animation.source, event.frame].join(":"),
-        projectId: data.project.id, tuningTarget: "player", profileId, groupType: "actor", animation: `${profileId}/${animationId}`,
+        key: [data.project.id, "player", profileId, animation.type, animationId, animation.source, event.frame].join(":"),
+        projectId: data.project.id, tuningTarget: "player", profileId, groupType: animation.type, animation: `${profileId}/${animationId}`,
         source: animation.source, frame: event.frame, displayFrame: event.frame,
         name: event.asset.name, type: event.asset.type, size: event.asset.buffer.length, path: event.asset.path, volume: event.volume,
       });
     }
-    if (existing >= 0 || importedAudio.events.length) store.writeJson(data.paths.frameAudio, audio);
-    store.writeJson(data.paths.manifest, manifest);
+    if (existing >= 0 || importedAudio.events.length) writeJson(data.paths.frameAudio, audio);
+    writeJson(data.paths.manifest, manifest);
     const settings = { ...data.settings, canvas: { padding: Number(data.settings.canvas?.padding ?? 24), autoMeasured: false } };
-    store.writeJson(data.paths.settings, settings);
+    writeJson(data.paths.settings, settings);
+    commitImportFiles(writes);
     return { ok: true, projectId: data.project.id, profileId, animationId, frameCount: frames.length, audioCount: importedAudio.events.length, fps, replaced: existing >= 0 };
   }
   return { root, store, capabilities: getCapabilities, createProject, importAnimation, resolveProject, projectData, listProjects: () => store.readRegistry().projects.map(store.projectForClient) };

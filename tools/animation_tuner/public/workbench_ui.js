@@ -7,6 +7,7 @@
   const profileSelect = byId("profileSelect");
   const projectDialog = byId("workbenchProjectDialog");
   const importDialog = byId("workbenchImportDialog");
+  const replaceDialog = byId("workbenchReplaceDialog");
   const state = { files: [], busy: false, featureBusy: false, ready: false, projectKind: "", capabilities: null, queued: false };
   const translations = {
     zh: {
@@ -19,10 +20,15 @@
       projectName: "项目名称", cancel: "取消", createProject: "创建项目", importTo: "导入到", importFormat: "素材格式",
       pngSequence: "PNG 序列", pngSequenceHint: "多张图片，按文件名排序", spriteSheet: "PNG + JSON 图集", spriteSheetHint: "一张图集与帧描述文件",
       chooseFiles: "点击选择或拖入 PNG 图片", noFiles: "尚未选择文件", sheetJson: "图集 JSON", profileId: "角色 / 素材集", animationId: "动作名称", fps: "播放帧率",
+      sheetAudio: "配套音频（JSON 引用时必选，可多选）", sheetAudioHint: "选择 JSON 引用的全部音频。文件名需唯一；有同名文件时请重命名并更新 JSON，或使用 CLI 按路径导入。",
+      missing_sheet_audio_files: "缺少配套音频：{files}。请选择 JSON 引用的全部音频文件。", ambiguous_sheet_audio_files: "无法唯一匹配音频：{files}。请重命名同名文件并更新 JSON 引用，或使用 CLI 按路径导入。",
+      invalid_sheet_audio_files: "图集音频描述无效。请检查 audio.files、audio.events 及音频文件的相对路径，文件与 ID 不可重复。",
+      replaceTitle: "替换现有动作", keepExisting: "保留现有动作", replaceTarget: "角色「{profile}」中已存在动作「{animation}」。",
+      replaceWarning: "替换会清除该动作的逐帧调参、框体、图片挂件、音效和动作拖尾，并导入新素材及配套音频。角色级和动作组级配置、其他动作保留。", replacementCancelled: "已保留现有动作；可修改名称后重新导入。",
       importHint: "图集中的独立帧时长会保留。已有同名动作时会提示，不会直接覆盖。", startImport: "开始导入",
       choosePng: "请选择 PNG 图片。", chooseSheet: "图集导入需要一张 PNG 和一个 JSON 描述文件。", duplicateNames: "所选图片存在重复文件名，请先重命名。",
       tooManyFiles: "每次最多导入 4096 张 PNG。", invalidJson: "无法读取图集 JSON，请检查文件格式。", emptyName: "请输入项目名称。",
-      invalidNames: "请填写角色与动作名称。", invalidFps: "帧率需要大于 0 且不超过 240。", reading: "正在读取图片…", importing: "正在导入…", creating: "正在创建…",
+      invalidNames: "请填写角色与动作名称。", invalidFps: "帧率需要大于 0 且不超过 240。", reading: "正在读取素材…", importing: "正在导入…", creating: "正在创建…",
       busy: "编辑器正在保存或加载，请稍后再试。", notReady: "编辑器尚未准备好，请稍后再试。", cancelled: "已取消，原有编辑保持不变。",
       exporting: "正在导出资源包，请完成后再新建项目或导入素材。",
       imported: "已导入 {count} 帧，可以开始调参。", created: "项目已创建，导入第一组动画开始创作。", reloadDeferred: "内容已写入；当前还有新的编辑，请保存后刷新动画列表。",
@@ -41,10 +47,15 @@
       projectName: "Project name", cancel: "Cancel", createProject: "Create project", importTo: "Import into", importFormat: "Asset format",
       pngSequence: "PNG sequence", pngSequenceHint: "Multiple images, sorted by filename", spriteSheet: "PNG + JSON sheet", spriteSheetHint: "One atlas and its frame metadata",
       chooseFiles: "Choose or drop PNG images", noFiles: "No files selected", sheetJson: "Sprite sheet JSON", profileId: "Character / asset set", animationId: "Animation name", fps: "Frame rate",
+      sheetAudio: "Companion audio (required when referenced; select multiple)", sheetAudioHint: "Select every audio file referenced by the JSON. Filenames must be unique; rename duplicates and update the JSON, or use the CLI to import by path.",
+      missing_sheet_audio_files: "Missing companion audio: {files}. Select every audio file referenced by the JSON.", ambiguous_sheet_audio_files: "Audio cannot be matched uniquely: {files}. Rename duplicate files and update the JSON references, or use the CLI to import by path.",
+      invalid_sheet_audio_files: "Invalid sheet audio metadata. Check audio.files, audio.events, and relative audio paths; files and IDs must be unique.",
+      replaceTitle: "Replace existing animation", keepExisting: "Keep existing animation", replaceTarget: "Character “{profile}” already has an animation named “{animation}”.",
+      replaceWarning: "Replacement clears this animation’s per-frame tuning, boxes, image attachments, audio, and attack trail, then imports the new assets and companion audio. Character and animation-group settings, and other animations, are preserved.", replacementCancelled: "Existing animation kept. Change the name to import separately.",
       importHint: "Per-frame timings in the sheet are preserved. An existing animation will never be replaced without asking.", startImport: "Import animation",
       choosePng: "Choose PNG images to import.", chooseSheet: "A sheet import requires exactly one PNG and one JSON metadata file.", duplicateNames: "Some images have the same filename. Rename them before importing.",
       tooManyFiles: "Import up to 4096 PNG images at a time.", invalidJson: "Could not read the sprite sheet JSON. Check its format.", emptyName: "Enter a project name.",
-      invalidNames: "Enter a character and animation name.", invalidFps: "Frame rate must be greater than 0 and at most 240.", reading: "Reading images…", importing: "Importing…", creating: "Creating…",
+      invalidNames: "Enter a character and animation name.", invalidFps: "Frame rate must be greater than 0 and at most 240.", reading: "Reading assets…", importing: "Importing…", creating: "Creating…",
       busy: "The editor is saving or loading. Please try again shortly.", notReady: "The editor is not ready yet. Please try again shortly.", cancelled: "Cancelled. Your current edits are unchanged.",
       exporting: "An export is in progress. Wait for it to finish before creating a project or importing assets.",
       imported: "Imported {count} frames. Ready to fine-tune.", created: "Project created. Import your first animation to begin.", reloadDeferred: "Content was written. Save your new edits, then refresh the animation list.",
@@ -71,7 +82,7 @@
 
   function showError(id, error) {
     const target = byId(id);
-    target.textContent = error?.code === "animation_exists" ? t("exists") : String(error?.message || error || "");
+    target.textContent = error?.code === "animation_exists" ? t("exists") : translations.zh[error?.code] ? t(error.code, { files: error.files?.join("、") || "" }) : String(error?.message || error || "");
     target.hidden = !target.textContent;
   }
 
@@ -123,6 +134,7 @@
     if (!response.ok) {
       const error = new Error(result.error || t("requestFailed", { status: response.status }));
       error.code = result.code;
+      error.status = response.status;
       throw error;
     }
     return result;
@@ -232,9 +244,11 @@
   importDialog.querySelectorAll('input[name="importMode"]').forEach((input) => input.addEventListener("change", () => {
     const sheet = mode() === "sheet";
     byId("workbenchSheetJsonField").hidden = !sheet;
+    byId("workbenchSheetAudioField").hidden = !sheet;
     byId("workbenchImageFiles").multiple = !sheet;
     byId("workbenchImageFiles").value = "";
     byId("workbenchSheetJson").value = "";
+    byId("workbenchSheetAudio").value = "";
     state.files = [];
     updateFileSummary();
     showError("workbenchImportError", "");
@@ -255,12 +269,23 @@
     if (state.busy) return;
     try { setFiles(event.dataTransfer?.files || []); } catch (error) { showError("workbenchImportError", error); }
   });
-  function readDataUrl(file) {
+  function readDataUrl(file, mimeType = "image/png") {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).replace(/^data:[^;]*;/, "data:image/png;"));
+      reader.onload = () => resolve(String(reader.result).replace(/^data:[^;]*;/, `data:${mimeType};`));
       reader.onerror = () => reject(reader.error || new Error(`Could not read ${file.name}`));
       reader.readAsDataURL(file);
+    });
+  }
+
+  function confirmReplacement(payload) {
+    byId("workbenchReplaceTarget").textContent = t("replaceTarget", { profile: payload.profileId, animation: payload.animationId });
+    byId("workbenchImportProgress").textContent = "";
+    replaceDialog.returnValue = "cancel";
+    return new Promise((resolve) => {
+      replaceDialog.addEventListener("close", () => resolve(replaceDialog.returnValue === "replace"), { once: true });
+      replaceDialog.showModal();
+      byId("workbenchReplaceCancel").focus();
     });
   }
 
@@ -277,22 +302,40 @@
       if (!Number.isFinite(fps) || fps <= 0 || fps > 240) throw new Error(t("invalidFps"));
       setBusy(true, t("reading"));
       let sheetJson;
+      let audioMatches = [];
       if (mode() === "sheet") {
         const jsonFile = byId("workbenchSheetJson").files[0];
         if (state.files.length !== 1 || !jsonFile) throw new Error(t("chooseSheet"));
         try { sheetJson = JSON.parse(await jsonFile.text()); } catch { throw new Error(t("invalidJson")); }
+        audioMatches = window.FrameTunerSheetAudioFiles.match(sheetJson, byId("workbenchSheetAudio").files);
       }
-      const token = await acquireDiscardToken();
+      let token = await acquireDiscardToken();
       if (!token) { notice(t("cancelled")); return; }
       showError("workbenchImportError", "");
       const files = [];
       for (const file of state.files) files.push({ name: file.name, data: await readDataUrl(file) });
+      const audioFiles = [];
+      for (const entry of audioMatches) audioFiles.push({ file: entry.file, name: entry.selected.name, data: await readDataUrl(entry.selected, entry.mimeType) });
+      const payload = { projectId, profileId, animationId, fps, files, ...(sheetJson !== undefined ? { sheetJson, audioFiles } : {}) };
       byId("workbenchImportProgress").textContent = t("importing");
-      const result = await request("/api/workbench/import", { projectId, profileId, animationId, fps, files, ...(sheetJson !== undefined ? { sheetJson } : {}) });
+      let result;
+      try {
+        result = await request("/api/workbench/import", payload);
+      } catch (error) {
+        if (error.status !== 409 || error.code !== "animation_exists") throw error;
+        if (!await confirmReplacement(payload)) { notice(t("replacementCancelled")); return; }
+        // Confirmation may stay open while editor state changes. Obtain a fresh
+        // discard token before the explicit write; never reuse the initial one.
+        token = await acquireDiscardToken();
+        if (!token) { notice(t("cancelled")); return; }
+        byId("workbenchImportProgress").textContent = t("importing");
+        result = await request("/api/workbench/import", { ...payload, replace: true });
+      }
       await reloadAfterWrite(result.projectId, token, t("imported", { count: result.frameCount }));
       importDialog.close();
       byId("workbenchImageFiles").value = "";
       byId("workbenchSheetJson").value = "";
+      byId("workbenchSheetAudio").value = "";
       state.files = [];
       updateFileSummary();
     } catch (error) {

@@ -360,10 +360,19 @@
         <fieldset class="importModeChoices"><legend class="visuallyHidden" data-workbench-i18n="importFormat">素材格式</legend><label><input type="radio" name="importMode" value="frames" checked /><span><strong data-workbench-i18n="pngSequence">PNG 序列</strong><small data-workbench-i18n="pngSequenceHint">多张图片，按文件名排序</small></span></label><label><input type="radio" name="importMode" value="sheet" /><span><strong data-workbench-i18n="spriteSheet">PNG + JSON 图集</strong><small data-workbench-i18n="spriteSheetHint">一张图集与帧描述文件</small></span></label></fieldset>
         <label id="workbenchFileDrop" class="importFileDrop" for="workbenchImageFiles"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m-4 4 4-4 4 4M5 15v5h14v-5"/></svg><strong data-workbench-i18n="chooseFiles">点击选择或拖入 PNG 图片</strong><span id="workbenchFileSummary" data-workbench-i18n="noFiles">尚未选择文件</span><input id="workbenchImageFiles" type="file" accept="image/png,.png" multiple /></label>
         <label id="workbenchSheetJsonField" class="field" hidden><span data-workbench-i18n="sheetJson">图集 JSON</span><input id="workbenchSheetJson" type="file" accept="application/json,.json" /></label>
+        <label id="workbenchSheetAudioField" class="field" hidden><span data-workbench-i18n="sheetAudio">配套音频（JSON 引用时必选，可多选）</span><input id="workbenchSheetAudio" type="file" accept=".wav,.mp3,.ogg,.opus,.m4a,.aac,.flac,.webm" multiple aria-describedby="workbenchSheetAudioHint" /><small id="workbenchSheetAudioHint" class="importHelp" data-workbench-i18n="sheetAudioHint">选择 JSON 引用的全部音频。文件名需唯一；有同名文件时请重命名并更新 JSON，或使用 CLI 按路径导入。</small></label>
         <div class="importFields"><label class="field"><span data-workbench-i18n="profileId">角色 / 素材集</span><input id="workbenchProfileId" type="text" value="hero" maxlength="80" required autocomplete="off" /></label><label class="field"><span data-workbench-i18n="animationId">动作名称</span><input id="workbenchAnimationId" type="text" value="idle" maxlength="80" required autocomplete="off" /></label><label class="field"><span data-workbench-i18n="fps">播放帧率</span><span class="inputSuffix"><input id="workbenchImportFps" type="number" value="12" min="1" max="240" step="0.1" required /><span>FPS</span></span></label></div>
         <p class="importHelp" data-workbench-i18n="importHint">图集中的独立帧时长会保留。已有同名动作时会提示，不会直接覆盖。</p>
         <p id="workbenchImportError" class="formError" role="alert" hidden></p>
         <div class="dialogActions"><span id="workbenchImportProgress" class="importProgress" role="status"></span><button type="button" class="secondary" data-close-dialog data-workbench-i18n="cancel">取消</button><button id="workbenchImportSubmit" type="submit" class="accentButton" data-workbench-i18n="startImport">开始导入</button></div>
+      </form>
+    </dialog>
+    <dialog id="workbenchReplaceDialog" class="workbenchDialog" aria-labelledby="workbenchReplaceTitle" aria-describedby="workbenchReplaceTarget workbenchReplaceWarning">
+      <form method="dialog" class="workbenchForm">
+        <div class="dialogHeading"><h2 id="workbenchReplaceTitle" data-workbench-i18n="replaceTitle">替换现有动作</h2></div>
+        <p id="workbenchReplaceTarget" class="dialogDescription"></p>
+        <p id="workbenchReplaceWarning" class="dialogDescription" data-workbench-i18n="replaceWarning">替换会清除该动作的逐帧调参、框体、图片挂件、音效和动作拖尾，并导入新素材及配套音频。角色级和动作组级配置、其他动作保留。</p>
+        <div class="dialogActions"><button id="workbenchReplaceCancel" type="submit" value="cancel" class="secondary" data-workbench-i18n="keepExisting" autofocus>保留现有动作</button><button id="workbenchReplaceConfirm" type="submit" value="replace" class="accentButton" data-workbench-i18n="replaceTitle">替换现有动作</button></div>
       </form>
     </dialog>
     <script src="/binding_scope.js?v=20260729-0217"></script>
@@ -373,7 +382,8 @@
     <script src="/attack_trails.js?v=20260801-attachment-lock"></script>
     <script src="/workbench_state.js?v=20261006"></script>
     <script src="/app.js?v=20261006-workbench"></script>
-    <script src="/workbench_ui.js?v=20261006"></script>
+    <script src="/sheet_audio_files.js?v=20261006"></script>
+    <script src="/workbench_ui.js?v=20261006-import"></script>
     <script src="/portable_export.js?v=20261006"></script>
   </body>
 </html>
