@@ -1401,6 +1401,9 @@ function scheduleServerRestart() {
   restartScheduled = true;
   const timer = setTimeout(() => {
     server.close(() => {
+      // The Windows launcher owns the console and restarts us in-place after
+      // an explicit update; do not escape into a detached background process.
+      if (process.env.FRAME_TUNER_FOREGROUND === "1") return process.exit(75);
       const child = spawn(process.execPath, [__filename], {
         cwd: ROOT,
         env: { ...process.env, PORT: String(PORT) },
