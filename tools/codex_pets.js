@@ -51,15 +51,16 @@ function codexPetRoot() {
   return path.join(codexHome(), "pets");
 }
 
-function ensureCodexPetsProject(projectStore) {
+function ensureCodexPetsProject(projectStore, options = {}) {
   const registry = projectStore.readRegistry();
-  const petRoot = codexPetRoot();
+  const petRoot = path.resolve(options.petRoot || codexPetRoot());
   fs.mkdirSync(petRoot, { recursive: true });
-  const existing = registry.projects.find((project) => project.id === CODEX_PETS_PROJECT_ID);
+  // A normal workspace can legitimately use the default Pets ID. Identify the
+  // optional integration by its kind, including IDs allocated after a collision.
+  const existing = registry.projects.find((project) => project.kind === "codex_pets");
   if (existing) {
     const nextRoot = path.resolve(petRoot);
-    if (existing.kind !== "codex_pets" || existing.petRoot !== nextRoot || existing.projectRoot !== nextRoot) {
-      existing.kind = "codex_pets";
+    if (existing.petRoot !== nextRoot || existing.projectRoot !== nextRoot) {
       existing.label = existing.label || CODEX_PETS_PROJECT_LABEL;
       existing.petRoot = nextRoot;
       existing.projectRoot = nextRoot;
@@ -67,16 +68,20 @@ function ensureCodexPetsProject(projectStore) {
     }
     return registry;
   }
+  const usedIds = new Set(registry.projects.map((project) => project.id.toLowerCase()));
+  let projectId = CODEX_PETS_PROJECT_ID;
+  let suffix = 2;
+  while (usedIds.has(projectId.toLowerCase())) projectId = `${CODEX_PETS_PROJECT_ID}_${suffix++}`;
   registry.projects.push({
-    id: CODEX_PETS_PROJECT_ID,
+    id: projectId,
     label: CODEX_PETS_PROJECT_LABEL,
     kind: "codex_pets",
     projectRoot: path.resolve(petRoot),
     petRoot: path.resolve(petRoot),
-    dataDir: `data/projects/${CODEX_PETS_PROJECT_ID}`,
-    workspaceDir: `workspace/projects/${CODEX_PETS_PROJECT_ID}`,
+    dataDir: `data/projects/${projectId}`,
+    workspaceDir: `workspace/projects/${projectId}`,
   });
-  if (!registry.activeProjectId) registry.activeProjectId = CODEX_PETS_PROJECT_ID;
+  if (!registry.activeProjectId) registry.activeProjectId = projectId;
   return projectStore.writeRegistry(registry);
 }
 

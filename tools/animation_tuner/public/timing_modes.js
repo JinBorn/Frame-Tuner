@@ -132,6 +132,22 @@
     });
   }
 
+  // Preserve fractional time across animation frames. A step can stop at an
+  // async animation boundary; any remaining time is consumed after it loads.
+  function advancePlaybackClock(now, previousTime, duration, advance, canAdvance = () => true, maxSteps = 1000) {
+    let time = Number(previousTime) || 0;
+    let steps = 0;
+    const limit = Math.max(1, Math.trunc(Number(maxSteps) || 1000));
+    while (steps < limit && canAdvance()) {
+      const interval = Math.max(0.001, Number(duration()) || 0.001);
+      if (Number(now) - time + 1e-7 < interval) break;
+      time += interval;
+      steps += 1;
+      advance();
+    }
+    return { time, steps };
+  }
+
   return {
     averageFrameTiming,
     groupFpsForDuration,
@@ -139,5 +155,6 @@
     liteExportSamples,
     bakedSequenceSamples,
     distributeIntegerMilliseconds,
+    advancePlaybackClock,
   };
 });

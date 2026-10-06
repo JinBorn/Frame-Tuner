@@ -3,7 +3,7 @@ body.frameTunerLite #addCodexPet {
 }
 
 body.frameTunerLite .brand .mark {
-  background: linear-gradient(135deg, var(--accent-2) 0 46%, transparent 46% 54%, var(--accent) 54% 100%);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
 }
 
 .liteExportPanel {
@@ -18,7 +18,7 @@ body.frameTunerLite .brand .mark {
 
 .liteCanvasGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -60,8 +60,8 @@ body.frameTunerLite .brand .mark {
 }
 
 .liteCanvasResult strong {
-  color: var(--text);
-  font: 800 12px/1.2 var(--data-font);
+  color: var(--ink);
+  font: 500 12px/1.2 var(--data-font);
 }
 
 .liteMeasureButton {
@@ -97,7 +97,7 @@ body.frameTunerLite .brand .mark {
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 82%, transparent);
   color: var(--muted);
-  font: 700 11px/1.45 var(--data-font);
+  font: 400 10px/1.7 var(--data-font);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

@@ -4,8 +4,10 @@ const { EMPTY_MANIFEST, EMPTY_TUNING, createProjectStore, godotProjectName, proj
 const { syncGodotProject } = require("./godot_sync");
 const { frameBoxCoverageIssues, upsertEstimatedFrameBoxes } = require("./box_estimator");
 const { ensureInitialCharacterScale } = require("./import_scale");
+const { createWorkbenchService } = require("./workbench_service");
+const { ADAPTERS } = require("./engine_adapters");
 
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = path.resolve(process.env.FRAME_TUNER_ROOT || path.join(__dirname, ".."));
 const projectStore = createProjectStore(ROOT);
 
 function usage() {
@@ -79,7 +81,7 @@ function projectForImport(args) {
     const existingByRoot = registry.projects.find((entry) => samePath(entry.projectRoot, projectRoot));
     if (existingByRoot) return existingByRoot;
     const label = godotProjectName(projectRoot) || path.basename(projectRoot);
-    registry = projectStore.addProject({ label, projectRoot });
+    registry = projectStore.addProject({ label, projectRoot, kind: args.engine });
     const project = registry.projects.find((entry) => entry.id === registry.activeProjectId);
     if (!project) throw new Error(`Project not found after adding ${label}`);
     return project;
@@ -92,6 +94,7 @@ function projectForImport(args) {
       id: args.project ? requestedId : path.basename(projectRoot),
       label: args.project || path.basename(projectRoot),
       projectRoot,
+      kind: args.engine,
     });
     project = registry.projects.find((entry) => entry.id === registry.activeProjectId);
   }
@@ -127,8 +130,24 @@ function main() {
     .sort(naturalSort);
   if (!pngs.length) throw new Error(`No PNG files found in ${sourceDir}`);
 
+  if (args.engine && !ADAPTERS[String(args.engine)]) throw new Error(`Unsupported engine: ${args.engine}`);
+  if (!Number.isFinite(Number(args.fps ?? 12)) || Number(args.fps ?? 12) <= 0) throw new Error("FPS must be positive.");
+
   const project = projectForImport(args);
+  if (projectEngine(project) === "lite") {
+    const result = createWorkbenchService({ root: ROOT, store: projectStore }).importAnimation({
+      projectId: project.id, profileId: args.profile, animationId: args.animation, fps: Number(args.fps || 12), replace: args.replace === true,
+      files: pngs.map((name) => ({ name, data: `data:image/png;base64,${fs.readFileSync(path.join(sourceDir, name)).toString("base64")}` })),
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  if (!["godot", "unity"].includes(projectEngine(project))) throw new Error(`Unsupported import target: ${projectEngine(project)}`);
   const paths = projectStore.projectPaths(project);
+  const existingManifest = projectStore.readJson(paths.manifest, EMPTY_MANIFEST);
+  if (existingManifest.profiles?.find((entry) => entry.id === slug(args.profile))?.animations?.some((entry) => entry.id === slug(args.animation)) && !args.replace) throw new Error("Animation already exists; use --replace to replace it.");
+  projectStore.readJson(paths.tuning, EMPTY_TUNING);
+  for (const name of pngs) { const size = getPngSize(path.join(sourceDir, name)); if (!size.width || !size.height) throw new Error(`Invalid PNG: ${name}`); }
   const workspaceAssets = path.join(paths.workspaceDir, "assets");
   const profileId = slug(args.profile);
   const animationId = slug(args.animation);
@@ -174,7 +193,7 @@ function main() {
   const scaleResult = ensureInitialCharacterScale(
     tuning,
     profileId,
-    project.projectRoot,
+    projectEngine(project) === "godot" ? project.projectRoot : "",
     frameFiles.map((filePath) => ({ filePath, animationId, animationName: args.animation }))
   );
   upsertEstimatedFrameBoxes(tuning, profileId, animation, frameFiles, {

@@ -52,11 +52,13 @@ function pngCount(sourceDir) {
 
 function preflightBatch(batch) {
   const { globals, entries } = batch;
-  if (!globals["project-root"] || !globals.profile || !entries.length) {
-    throw new Error("Batch import requires --project-root, --profile, and at least one --animation/--source pair.");
+  if ((!globals["project-root"] && !globals.project) || !globals.profile || !entries.length) {
+    throw new Error("Batch import requires --project or --project-root, --profile, and at least one --animation/--source pair.");
   }
-  const projectRoot = path.resolve(String(globals["project-root"]));
-  if (!fs.existsSync(path.join(projectRoot, "project.godot"))) {
+  const projectRoot = globals["project-root"] ? path.resolve(String(globals["project-root"])) : "";
+  const engine = globals.engine || (projectRoot ? "godot" : "frame_lite");
+  if (!["frame_lite", "godot", "unity"].includes(engine)) throw new Error(`Unsupported batch engine: ${engine}`);
+  if (engine === "godot" && !fs.existsSync(path.join(projectRoot, "project.godot"))) {
     throw new Error(`Godot project.godot not found under: ${projectRoot}`);
   }
 
@@ -87,7 +89,7 @@ function preflightBatch(batch) {
   });
 
   return {
-    globals: { ...globals, "project-root": projectRoot, profile: slug(globals.profile, "profile") },
+    globals: { ...globals, engine, "project-root": projectRoot, profile: slug(globals.profile, "profile") },
     entries: normalizedEntries,
   };
 }
@@ -98,7 +100,7 @@ function importBatch(batch) {
   for (const entry of checked.entries) {
     const args = [
       IMPORT_SCRIPT,
-      "--project-root", checked.globals["project-root"],
+      "--engine", checked.globals.engine,
       "--profile", checked.globals.profile,
       "--animation", entry.animation,
       "--source", entry.source,
@@ -106,6 +108,7 @@ function importBatch(batch) {
       "--type", entry.type,
       "--anchor", entry.anchor,
     ];
+    if (checked.globals["project-root"]) args.push("--project-root", checked.globals["project-root"]);
     if (checked.globals.project) args.push("--project", checked.globals.project);
     if (checked.globals.label) args.push("--label", checked.globals.label);
     if (checked.globals.replace) args.push("--replace");

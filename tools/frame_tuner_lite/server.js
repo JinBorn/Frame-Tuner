@@ -17,12 +17,16 @@ const {
 } = require("../attack_trail_presets");
 const { EMPTY_MANIFEST, EMPTY_SETTINGS, EMPTY_TUNING, createLiteStore, reslash, slug } = require("./store");
 const { withUtf8Charset } = require("../http_content_type");
+const { createWorkbenchService, resolveWorkbenchAsset } = require("../workbench_service");
+const { adapterForProject } = require("../engine_adapters");
 
-const ROOT = path.resolve(__dirname, "..", "..");
-const FULL_PUBLIC = path.join(ROOT, "tools", "animation_tuner", "public");
+function createLiteApp(options = {}) {
+const ROOT = path.resolve(options.root || process.env.FRAME_TUNER_ROOT || path.join(__dirname, "..", ".."));
+const FULL_PUBLIC = path.resolve(__dirname, "..", "animation_tuner", "public");
 const LITE_PUBLIC = path.join(__dirname, "public");
 const PORT = Number(process.env.LITE_PORT || 5180);
-const store = createLiteStore(ROOT);
+const store = options.store || createLiteStore(ROOT);
+const workbench = createWorkbenchService({ root: ROOT, store });
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const vector = (value, fallback = { x: 0, y: 0 }) => ({ x: Number(value?.x ?? fallback.x), y: Number(value?.y ?? fallback.y) });
@@ -127,6 +131,7 @@ function send(res, status, body, contentType = "application/json") {
 }
 
 function readBody(req, limit = 256 * 1024 * 1024) {
+  if (req.workbenchBody !== undefined) return Promise.resolve(req.workbenchBody);
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
@@ -157,6 +162,7 @@ function normalizeManifest(raw) {
       id: String(profile.id || profile.name || "sequence"),
       label: String(profile.label || profile.id || profile.name || "Sequence"),
       kind: "actor",
+      sourceFacesLeft: profile.source_faces_left === true || profile.sourceFacesLeft === true,
       bodyScale: Math.max(0.001, Number(profile.bodyScale ?? 1)),
       runtimeScale: Math.max(0.001, Number(profile.runtimeScale ?? 1)),
       supports: Array.isArray(profile.supports) ? profile.supports : ["character_transform", "group_transform", "frame_transform", "frame_playback", "reference_frame"],
@@ -199,6 +205,8 @@ function buildGroups(manifest, tuning) {
       groups.push({
         name,
         animationId: id,
+        loop: animation.loop !== false,
+        sourceFacesLeft: profile.source_faces_left === true || profile.sourceFacesLeft === true,
         runtimeAnimation: `${profile.id}/${id}`,
         profileId: profile.id,
         profileLabel: profile.label,
@@ -424,19 +432,20 @@ function configResponse(projectId) {
     return {
       root: ROOT, workspaceRoot: path.join(ROOT, "workspace", "lite"), workspaceAllRoot: path.join(ROOT, "workspace", "lite"), projectRoot: "",
       activeProjectId: "", activeProject: null, projects, scenes: [], profiles: [], frameAudioBindings: [], frameImageAttachments: [],
-      attackTrails: EMPTY_ATTACK_TRAILS, tuning: clone(EMPTY_TUNING), warnings: ["Lite 还没有素材。请让 Agent 导入 PNG 序列或 PNG+JSON sheet。"],
-      references: {}, projectKind: "frame_lite", liteSettings: clone(EMPTY_SETTINGS), groups: [], configRevision: "",
+      attackTrails: EMPTY_ATTACK_TRAILS, tuning: clone(EMPTY_TUNING), warnings: ["还没有素材。新建项目并导入 PNG 序列或 PNG + JSON 图集即可开始。"],
+      references: {}, projectKind: "frame_lite", projectEngine: "lite", capabilities: workbench.capabilities(), liteSettings: clone(EMPTY_SETTINGS), groups: [], configRevision: "",
     };
   }
+  workbench.projectData(project.id);
   const data = projectData(project);
   return {
     root: ROOT, workspaceRoot: data.target.workspaceDir, workspaceAllRoot: path.join(ROOT, "workspace", "lite"), projectRoot: "",
     activeProjectId: project.id, activeProject: store.projectForClient(project), projects, scenes: [],
-    profiles: data.manifest.profiles.map((profile) => ({ id: profile.id, label: profile.label, kind: profile.kind, scale_semantic: "character_group_frame", anchor_mode: "manifest_anchor_mode", supports: profile.supports })),
+    profiles: data.manifest.profiles.map((profile) => ({ id: profile.id, label: profile.label, kind: profile.kind, sourceFacesLeft: profile.sourceFacesLeft === true, scale_semantic: "character_group_frame", anchor_mode: "manifest_anchor_mode", supports: profile.supports })),
     frameAudioBindings: data.audio, frameImageAttachments: data.attachments, attackTrails: data.attackTrails,
     tuning: { ...data.tuning.values, scene_settings: data.tuning.scene_settings || {}, frame_visual_overrides: data.tuning.frame_visual_overrides || {}, frame_playback_overrides: data.tuning.frame_playback_overrides || {}, frame_box_overrides: data.tuning.frame_box_overrides || {} },
     tuningDefaults: {}, bossTuning: {}, act2StatueBossTuning: {}, act2StatueBossDefaults: {}, huangXianTuning: {}, huangXianDefaults: {}, huangXianManifest: {}, soulTuning: {}, soulDefaults: {}, soulManifest: {}, yechengPropTuning: {}, yechengPropDefaults: {},
-    warnings: validateLiteProject(project, data), references: {}, projectKind: "frame_lite", liteSettings: data.settings,
+    warnings: validateLiteProject(project, data), references: {}, projectKind: "frame_lite", projectEngine: "lite", capabilities: adapterForProject(project), liteSettings: data.settings,
     configRevision: projectConfigRevision(project),
     groups: buildGroups(data.manifest, data.tuning),
   };
@@ -474,14 +483,9 @@ function savePayload(project, payload) {
     frame_playback_overrides: payload.frame_playback_overrides && typeof payload.frame_playback_overrides === "object" ? payload.frame_playback_overrides : {},
     frame_box_overrides: payload.frame_box_overrides && typeof payload.frame_box_overrides === "object" ? payload.frame_box_overrides : {},
   };
-  store.writeJson(target.tuning, tuning);
   const requestedAudio = payload.frame_audio_bindings || payload.frameAudioBindings || [];
   const currentAudio = audioBindingsArray(store.readJson(target.frameAudio, []));
-  const audio = Array.isArray(requestedAudio) && requestedAudio.length === 0 && currentAudio.length > 0
-    ? currentAudio
-    : saveFrameAudioBindings(project, requestedAudio);
   const attachments = Array.isArray(payload.frame_image_attachments) ? payload.frame_image_attachments : [];
-  store.writeJson(target.frameImageAttachments, attachments);
   const trails = normalizeAttackTrails(payload.attack_trails || EMPTY_ATTACK_TRAILS);
   for (const segments of Object.values(trails.bindings)) {
     for (const segment of segments) {
@@ -494,6 +498,11 @@ function savePayload(project, payload) {
     }
   }
   saveSharedAttackTrailPresets(ROOT, `lite:${project.id}`, trails.presets);
+  const audio = Array.isArray(requestedAudio) && requestedAudio.length === 0 && currentAudio.length > 0
+    ? currentAudio
+    : saveFrameAudioBindings(project, requestedAudio);
+  store.writeJson(target.tuning, tuning);
+  store.writeJson(target.frameImageAttachments, attachments);
   const projectTrails = attackTrailsWithoutSharedPresets(trails);
   store.writeJson(target.attackTrails, projectTrails);
   return { tuning, audio, attachments, trails: projectTrails };
@@ -503,8 +512,9 @@ function serveIndex(res) {
   let html = fs.readFileSync(path.join(FULL_PUBLIC, "index.html"), "utf8");
   html = html.replace("<title>XSXB Frame Tuner</title>", "<title>XSXB Frame Tuner Lite</title>")
     .replace("<h1>XSXB Frame Tuner</h1>", "<h1>XSXB Frame Tuner Lite</h1>")
-    .replace("</head>", "  <link rel=\"stylesheet\" href=\"/lite.css\" />\n  </head>")
-    .replace("</body>", "    <script src=\"/lite.js\"></script>\n  </body>");
+    .replace("<h1>Frame Tuner</h1>", "<h1>Frame Tuner Lite</h1>");
+  if (!html.includes('href="/lite.css"')) html = html.replace("</head>", "  <link rel=\"stylesheet\" href=\"/lite.css\" />\n  </head>");
+  if (!html.includes('src="/lite.js"')) html = html.replace("</body>", "    <script src=\"/lite.js\"></script>\n  </body>");
   return send(res, 200, html, "text/html; charset=utf-8");
 }
 
@@ -519,9 +529,23 @@ function serveStatic(res, pathname) {
   return send(res, 200, fs.readFileSync(full), type);
 }
 
-const server = http.createServer(async (req, res) => {
+const requestHandler = async (req, res) => {
   try {
     const url = new URL(req.url, "http://127.0.0.1");
+    if (req.method === "POST") {
+      req.workbenchBody = await readBody(req);
+      const payload = JSON.parse(req.workbenchBody);
+      if (!["/api/workbench/projects", "/api/projects/active"].includes(url.pathname) && payload.projectId) workbench.projectData(payload.projectId);
+    }
+    if (req.method === "GET" && url.pathname === "/api/workbench/capabilities") return send(res, 200, workbench.capabilities());
+    if (req.method === "POST" && url.pathname === "/api/workbench/projects") return send(res, 201, workbench.createProject(JSON.parse(await readBody(req))));
+    if (req.method === "POST" && url.pathname === "/api/workbench/import") return send(res, 200, workbench.importAnimation(JSON.parse(await readBody(req))));
+    if (req.method === "POST" && url.pathname === "/api/workbench/export") {
+      const payload = JSON.parse(await readBody(req));
+      const result = await require("../export_package").buildExportPackage(payload, { projectData: workbench.projectData(payload.projectId), root: ROOT });
+      res.setHeader("content-disposition", `attachment; filename="${result.filename.replace(/["\r\n]/g, "_")}"`);
+      return send(res, 200, result.buffer, "application/zip");
+    }
     if (req.method === "GET" && url.pathname === "/api/update-status") return send(res, 200, { updateAvailable: false, lite: true });
     if (req.method === "GET" && url.pathname === "/api/projects") {
       const registry = store.readRegistry();
@@ -646,7 +670,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (req.method === "GET" && url.pathname === "/asset") {
-      const full = safeResolve(ROOT, url.searchParams.get("path"));
+      const full = resolveWorkbenchAsset(ROOT, url.searchParams.get("path"));
       const types = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ...AUDIO_MIME_BY_EXTENSION };
       const type = types[path.extname(full || "").toLowerCase()];
       if (!full || !fs.existsSync(full) || !type) return send(res, 404, "Not found", "text/plain");
@@ -655,19 +679,12 @@ const server = http.createServer(async (req, res) => {
     }
     return serveStatic(res, url.pathname);
   } catch (error) {
-    console.error(error);
-    return send(res, 500, { error: String(error.message || error) });
+    if (!error.status || error.status >= 500) console.error(error.message || error);
+    return send(res, error.status || (error instanceof SyntaxError ? 400 : 500), { error: String(error.message || error), code: error.code || "request_failed" });
   }
-});
-
-if (require.main === module) {
-  server.listen(PORT, "127.0.0.1", () => {
-    console.log(`XSXB Frame Tuner Lite running at http://127.0.0.1:${PORT}`);
-    console.log(`Lite registry: ${store.path}`);
-  });
-}
-
-module.exports = {
+};
+const server = http.createServer(requestHandler);
+return {
   AUDIO_MIME_BY_EXTENSION,
   buildGroups,
   configResponse,
@@ -675,6 +692,16 @@ module.exports = {
   duplicateTrailFrameSlices,
   remapFrameOverrideDictionary,
   saveFrameAudioBindings,
+  requestHandler,
+  store,
   server,
   validateLiteProject,
 };
+}
+
+const defaultApp = createLiteApp();
+if (require.main === module) {
+  const port = Number(process.env.LITE_PORT || 5180);
+  defaultApp.server.listen(port, "127.0.0.1", () => console.log(`Frame Tuner Lite running at http://127.0.0.1:${port}`));
+}
+module.exports = { ...defaultApp, createLiteApp };

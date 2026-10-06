@@ -1,204 +1,104 @@
-# XSXB Frame Tuner
+# Frame Tuner
 
-XSXB Frame Tuner 是一个给 Godot 帧动画角色和 Codex 宠物用的本地调参工作台，配套一个 Codex/Agent skill。它让 Agent 负责导入、同步和验证素材，让人在网页里直观看帧、拖动角色、调碰撞框；Godot 动画保存回游戏项目，Codex 自定义宠物保存回宠物图集。
+本地帧动画调参工作台：导入 PNG 序列或 Sprite Sheet，在网页里调整变换、帧时长、图层、碰撞框元数据、音效与攻击拖尾，再导出透明序列、Sheet + JSON 或 Cocos Creator 3.8.8 播放包。
 
-仓库同时提供完全隔离的 **Frame Tuner Lite**：不绑定任何游戏，专门把 PNG 序列或带 JSON 的 Sprite Sheet 处理成统一透明画布的多图层序列帧和新 Sprite Sheet。
+默认项目不绑定游戏引擎，也不需要 Agent。需要自动处理时，同一份 skill 可供 Codex、Claude Code、Cursor、DeepSeek Harness 及能读文件、执行命令的其他 Agent 使用。Godot、Unity 和 Codex Pets 保留为可选适配能力。
 
-![XSXB Frame Tuner 截图](docs/screenshot.png)
+本仓库基于 [sparklecatta-lang/XSXB-Frame-Tuner](https://github.com/sparklecatta-lang/XSXB-Frame-Tuner) 修改，当前仓库与更新源为 [JinBorn/Frame-Tuner](https://github.com/JinBorn/Frame-Tuner)。
 
-## 功能
+![Frame Tuner 深色工作台：素材导航、动画画布、时间轴与属性编辑](docs/images/workbench.jpg)
 
-- 多项目隔离：每个 Godot 项目使用独立的 manifest、tuning、音频绑定、图片挂件和导入素材目录。
-- Codex 宠物项目：自动收集当前 Codex 版本的内置宠物和 `~/.codex/pets` 下的自定义宠物，同时支持 8×9 的 v1 图集和带 16 个视线方向帧的 8×11 v2 图集。
-- 宠物导入与回写：可直接导入合规 WebP 作为新宠物；自定义宠物保存时回写 `spritesheet.webp` 并保留 `spritesheet.xsxb-backup.webp`，内置宠物保持只读。
-- 一句话批量导入：Agent 可以把同一条消息里的多组 PNG 动画作为一个批次导入到同一角色，并统一核对组数和帧数。
-- 帧动画预览：支持逐帧选择、播放、暂停、参考帧、黑/白/透明背景和网格坐标。
-- 三层变换：角色级、动画组级、单帧级分别保存缩放、偏移、旋转和禁用状态。
-- 碰撞框调节：支持 hurtbox、hitbox、collisionbox，在画布中直接拖动和变形。
-- 播放调节：支持组级时长、单帧时长、禁用帧，以及调参后的实际播放节奏。
-- 帧音效和图片挂件：可以给指定帧绑定 SFX 或附加图片，保存后同步到 Godot 项目。
-- 攻击拖尾模式：先用棍子绘制与动作绑定的完整轨迹，再给需要的人物帧插入可直接拖动首尾的静态拖尾。
-- Godot 同步：导入 PNG 序列或 SpriteFrames 后，会生成/刷新 `res://xsxb_frame_tuner/` 下的运行时数据和基础 runtime。
-- 完整验证：可检查每帧框体、游戏本地数据、SFX、附加帧、场景系数、框体缩放和实际 gameplay 接线。
+## 启动与使用
 
-这个仓库不包含任何角色 PNG、音频、Godot 私有项目路径或调参数据。运行时产生的项目数据会留在本机，并被 `.gitignore` 排除。
+安装 Node.js 20+，在仓库目录运行：
 
-## 攻击拖尾模式
+```sh
+npm install
+npm start
+```
 
-选择角色和动作后开启“攻击拖尾模式”，再选择“拖尾绘制”或“拖尾插入”。绘制模式编辑与整组动作绑定的完整轨迹，不受当前人物帧限制；插入模式只决定当前人物帧显示轨迹的哪一段。
+用浏览器打开 **http://127.0.0.1:5179**。Windows 也可双击 `start_xsxb_frame_tuner.bat`。在工作台创建项目，导入序列帧或带 JSON 的图集，调整后保存并选择导出格式；无需先安装 skill。
 
-- “拖尾绘制”显示完整参数区。棍子操作栏使用 `＋`、`－`、前后图层、翻面和平滑轨迹；进入时默认显示完整拖尾，点击任意棍子会预览头部到达该棍的位置。
-- 画布播放键右侧的“拖尾预览”使用固定 1000ms 总时长和 0.5 尾/头速度比，只用于检查绘制轨迹，不写入正式结果。
-- “拖尾插入”只显示“本帧加入拖尾”。加入后直接沿轨迹拖动“尾”和“头”，该帧保存的首尾位置就是正式播放结果。
-- 画布右上角“棍”控制绘制手柄，“轨”控制轨迹虚线；隐藏虚线不会影响拖尾本身。
-- 每根棍子都可独立切换“角色前方/角色后方”，因此一段拖尾可以在运动途中穿过角色图层。
-- 每个动作可以保存多段互不相关的拖尾；纹理可一键反色，颜色、渐变节点、头部弧度、透明渐隐、尾端采样点和细腻度都可以重新编辑。
-- 默认附带 `dynamic_trail_luma.png` 预设。点击拖尾栏的“保存”可将当前纹理、单色/渐变配色、头部弧度和拖尾参数另存为命名预设；名称留空时自动编号，原预设不会被覆盖，棍子路径也不会复制。
-- 单色和渐变模式保留原贴图的灰度笔刷细节；原色模式要求带有效 Alpha 的 RGBA PNG。
-- 保存时会保留可编辑轨迹和逐帧首尾位置，并同步 Godot 运行时；游戏中按人物帧播放对应拖尾层，不再依赖一套额外的追赶计时动画。
-- “拖尾细腻度”默认值为 20，适合作为大多数帧动画的质量/性能平衡点；数值越高，弯曲更细但网格更新成本也更高。
+- 动画预览：播放、逐帧检查、参考帧、透明背景与网格。
+- 三层变换：角色、动作组、单帧的缩放、偏移和旋转。
+- 时间轴：保留不等帧时长、组级时长和禁用帧。
+- 图层与效果：图片挂件、逐帧音效和可编辑攻击拖尾。
+- 框体：编辑 hitbox、hurtbox、collisionbox 元数据，导出后由游戏决定如何使用。
+- 统一透明画布：在导出时按可见内容计算，同一角色切换动作保持一致原点。
 
-[![攻击拖尾编辑演示](docs/media/attack-trail-editor-demo-preview.gif)](docs/media/attack-trail-editor-demo.mp4)
+Web 编辑器运行在本机。CLI 导出复用相同的画面合成器，需已安装 Chrome、Edge 或 Chromium；`npm install` 安装 `playwright-core`，不会自动下载一套浏览器。
 
-README 会直接播放上方的轻量动态预览；点击动画可打开完整 720p MP4 演示。
+## 导出与引擎支持
 
-## 一键启动
+| 目标 | 产物与用途 |
+|---|---|
+| 通用 PNG 序列 | 透明帧图、时长与事件元数据，可供其他引擎自行读取 |
+| 通用 Sheet + JSON | 合并图集及帧描述，适用于帧动画素材管线 |
+| Cocos Creator 3.8.8 | 便携素材、manifest 和 TypeScript 播放组件 |
+| 现有 Godot 项目 | 保留 SpriteFrames 导入与已有 runtime 同步 |
+| 现有 Unity 项目 | 保留资源复制、数据库导入和播放组件 |
 
-仓库根目录提供两个可直接双击的入口：
+导出保留当前编辑效果；图层、变换和插入的拖尾烘焙到透明帧中。帧时长、源帧映射、音效事件和支持的框体数据随元数据保存。通用格式为其他引擎提供接入边界，并不宣称已经为所有引擎实现原生适配。
 
-- `start_xsxb_frame_tuner.bat`：启动正式版并打开 `http://127.0.0.1:5179`。
-- `start_xsxb_frame_tuner_lite.bat`：启动 Lite 版并打开 `http://127.0.0.1:5180`。
+Cocos 包包含 `assets/resources/frame-tuner/<项目ID>/` 下的素材与 manifest，以及 `assets/scripts/frame-tuner/` 下的 `FrameTunerPlayer`、数据类型和播放时钟。把生成的 `assets` 合入指定项目，在 Canvas 下的节点添加播放器，加载 manifest 后播放指定动作。支持循环/单次、暂停/继续、不等时长、禁用帧、朝向翻转、音效事件和框体查询。框体不会自动变成物理碰撞器，导出不会改写游戏业务代码。详见 [Cocos 3.8.8 接入](docs/cocos-3.8.8.md)。
 
-两个入口会先关闭本仓库已运行的另一种 Tuner 模式，因此正式版和 Lite 不会在后台重复占用服务。Windows 快捷方式可以直接指向对应 BAT，并复用 `tools/animation_tuner/assets/xsxb-frame-tuner.ico` 作为图标。
+## 命令行与 Agent
 
-## Unity runtime integration
+```sh
+node tools/frame_tuner.js create --name "Hero" --id hero
+node tools/frame_tuner.js import --project hero --input "D:/Art/Hero/idle" --profile hero --animation idle --fps 12
+node tools/frame_tuner.js validate --project hero
+node tools/frame_tuner.js export --project hero --format sheet --out "D:/Exports/HeroSheet"
+node tools/frame_tuner.js export --project hero --format cocos --out "D:/Exports/HeroCocos"
+```
 
-Frame Tuner project bindings support `godot`, `unity`, `frame_lite`, and `codex_pets`. A Unity binding is isolated by its exact project root while it can deliberately share the same engine-neutral manifest and tuning data with the original Godot binding during migration.
+Sheet 导入使用 `--input <图集.png> --json <图集.json>`。导出支持 `--format sequence|sheet|cocos`，使用 `--zip --out <文件.zip>` 可打包 ZIP。自动发现浏览器失败时指定 `--browser <可执行文件>`，或设置 `FRAME_TUNER_BROWSER`。
 
-Saving a Unity project copies all runtime assets into stable Unity-owned paths:
+命令返回 JSON，失败使用非零退出码。导入与验证无需浏览器；图片导出使用无头浏览器，不要求点击网页或操作系统目录选择器。`node tools/frame_tuner.js --help` 可查看完整参数。
+
+安装 skill 需显式选择目标，例如安装到一个游戏项目供 DeepSeek Harness 使用：
+
+```sh
+node tools/install_skill.js --client deepseek-harness --project-root "D:/Games/MyGame"
+```
+
+`--client` 还支持 `codex`、`claude-code`、`cursor`；其他配置使用 `--target <完整skill目录>`。默认项目级，用户级需 `--scope user`。安装器不覆盖已有非托管目录或手工修改的指令。四种客户端的路径、安装/升级和调用方式见 [Agent 接入](docs/agents.md)。
+
+## 已有项目与可选功能
+
+新项目使用主工作台的中立存储。已有 Godot/Unity 绑定保留原来的游戏根目录与数据，同步仅作用于被明确绑定的引擎项目。Godot 校验工具为 `tools/validate_import.js`，Unity 为 `tools/validate_unity.js`；只有需要完整 gameplay 验证时才使用对应的严格游戏接线检查。
+
+旧版 Lite 仍使用独立的项目列表与目录，可通过 `npm run start:lite` 或 `start_xsxb_frame_tuner_lite.bat` 打开 **http://127.0.0.1:5180**。它不会自动迁移或覆盖主工作台项目。
+
+Codex Pets 默认不扫描。在左侧“可选功能”中明确启用后才能发现本机宠物；兼容 v1/v2 WebP 图集，自定义宠物回写保留原图备份，内置宠物只读。启动时也可设置 `FRAME_TUNER_CODEX_PETS=1`。这只是可选素材适配器，工作台和其他 Agent 不依赖 Codex 应用。
+
+## 本地数据与更新
+
+默认本地项目数据：
 
 ```text
-Assets/XSXBFrameTuner/Frames/<project_id>/
-Assets/XSXBFrameTuner/Audio/<project_id>/
-Assets/XSXBFrameTuner/Attachments/<project_id>/
-Assets/XSXBFrameTuner/AttackTrails/<project_id>/
-Assets/XSXBFrameTuner/RuntimeData/<project_id>/
-Assets/XSXBFrameTuner/Runtime/
+data/projects.json
+data/projects/<项目ID>/
+workspace/projects/<项目ID>/
 ```
 
-`xsxb_runtime_data.json` is a derived Unity adapter over the existing authoritative `animation_manifest.json`, `animation_tuning.json`, frame SFX, attachments, and attack-trail JSON. It resolves real per-frame durations, disabled frames, transforms, facing, boxes, and stable Unity asset paths. `XsxbRuntimeImporter` automatically creates `xsxb_runtime_data.asset` after script reload and can also be run from **Tools > XSXB > Rebuild Runtime Databases**.
+旧 Lite 数据仍在 `data/lite/` 与 `workspace/lite/`。这些运行数据由 Git 忽略；源素材与导出结果留在本机。需要隔离不同工作台实例或自动化任务时，可设置 `FRAME_TUNER_ROOT` 为独立的数据根目录。
 
-Attach `XsxbFramePlayer` to a Unity actor and assign the generated database. Replaying the same looping animation is idempotent; one-shot actions use `Play(animationId, false, true)` or `RestartAnimation()`. Gameplay can query `GetAnimationDurationSeconds()`, current hit/hurt/collision boxes, and the animation-finished event. Attack-trail data and timing are exposed through `IXsxbAttackTrailConsumer`; a project-specific Unity mesh/shader consumer is still required for final trail rendering.
-
-Validation commands:
-
-```powershell
-npm run validate:unity -- --project <unity_project_id>
-npm run smoke:unity
-```
-
-## Frame Tuner Lite
-
-Lite 版与完整 Tuner 共用编辑器和攻击拖尾能力，但使用独立服务、独立项目列表和独立数据目录，不会修改 Godot 项目，也不会改变完整 Tuner 当前选中的项目。角色/动画/单帧变换、真实帧时长、disabled frame、碰撞框元数据、图片图层、逐帧音效与攻击拖尾都可照常编辑保存；只有 Godot runtime 与游戏绑定明确关闭。
-
-Agent 可导入两类材料：
-
-```powershell
-# PNG 序列
-node tools\frame_tuner_lite\import_frames.js --project demo --profile character --animation attack --source "D:\frames\attack" --fps 12
-
-# PNG + JSON Sprite Sheet
-node tools\frame_tuner_lite\import_sheet.js --project demo --profile character --animation attack --sheet "D:\sheet\attack.png" --json "D:\sheet\attack.json" --fps 12
-```
-
-多图层仍按序列管理。下面的导入会把 `weapon_glow` 放在 `attack` 后方；改为 `--layer front` 可放到前方，加入 `--independent` 可使用自己的播放时间轴：
-
-```powershell
-node tools\frame_tuner_lite\import_frames.js --project demo --profile character --animation weapon_glow --source "D:\frames\glow" --fps 12 --attach-to attack --layer behind
-```
-
-启动地址与完整 Tuner 分开：
-
-```powershell
-npm run start:lite
-# http://127.0.0.1:5180
-```
-
-Windows 下也可以直接双击仓库根目录的 `start_xsxb_frame_tuner_lite.bat`。
-
-导入阶段不要求用户预先决定统一画布。先在页面里校准当前角色的所有动作、图层、逐帧音效和拖尾；“透明序列导出”会扫描该角色全部主动作组的实际可见像素范围，加入可调透明边距，再自动得到一个不会裁切且尽量紧凑的全角色统一画布。所有动作共享这个尺寸和同一个角色原点，切换动作时不会跳位。Lite 中的拖尾棍子只负责绘制空间轨迹，只有在“拖尾插入”中明确加入当前人物帧的拖尾范围才会显示和导出。每张可播放源帧始终只生成一张最终烘焙帧，主帧、附加帧和该帧拖尾会合成到同一张透明 PNG。把音频文件拖到帧卡即可绑定并预览，点击帧卡上的喇叭可以删除。点击任一导出按钮都会先打开系统文件夹选择器，不会写入固定的 Lite 内部路径。“导出 PNG 序列”为当前角色的每个主动作分别写逐帧透明 PNG，并用 `export.json` 作为唯一描述文件；“导出 Sheet + JSON”为每个主动作只写 `spritesheet.png` 和可被 Lite 重新导入的 `spritesheet.json`，不再生成重复的 `export.json`。Sheet 的帧时长、源帧映射和音效都以 `spritesheet.json` 为唯一权威。附属图层会合成进所属主动作，不会被重复导出成另一组。两种导出都会把实际使用的音频复制到批次根目录的 `audio/`；Agent 再次导入 Sheet 时会从 `spritesheet.json` 恢复音频文件和帧卡绑定。
-
-Lite 本地数据保存在：
-
-```text
-data/lite/projects/<project_id>/
-workspace/lite/projects/<project_id>/assets/
-```
-
-这些目录均被 Git 忽略，不包含用户项目路径。导出文件保存在用户通过系统选择器指定的目录。完整 Agent 导入与验收约定见 `skills/xsxb-frame-tuner/references/lite-contract.md`。
-
-## 仓库内容
-
-- `tools/animation_tuner/`：本地 Webapp，默认服务地址是 `http://127.0.0.1:5179`。
-- `tools/frame_tuner_lite/`：非游戏绑定的序列帧导入、独立服务与透明导出工具，默认服务地址是 `http://127.0.0.1:5180`。
-- `tools/import_frames.js`：Agent 用来导入 PNG 序列的内部工具。
-- `tools/import_batch.js`：Agent 用来一次导入多组 PNG 动画的内部工具。
-- `tools/import_spriteframes.js`：Agent 用来从 Godot `.spriteframes.tres` 导入动画的内部工具。
-- `tools/validate_import.js`：验证独立 tuner 与 Godot 项目的完整接线结果。
-- `tools/godot_sync.js` 和 `tools/godot_runtime.js`：把调参数据、素材和 runtime 同步到 Godot 项目。
-- `skills/xsxb-frame-tuner/`：配套 Codex/Agent skill。
-- `data/`、`workspace/`、`audio/`：本地运行时目录。真实项目数据不提交。
-
-## 安装方式
-
-只提供 Agent 安装方式。把下面这段话交给 Codex 或其他支持 skills 的 Agent：
-
-```text
-请从 https://github.com/sparklecatta-lang/XSXB-Frame-Tuner 安装并启用 `skills/xsxb-frame-tuner`。
-安装后把仓库克隆到本机作为 XSXB Frame Tuner 工具根目录。
-以后处理 Godot 帧动画角色导入、动画追加、碰撞框调参、音效/挂件同步时，默认使用 `$xsxb-frame-tuner`。
-```
-
-## 使用方式
-
-安装后，建议继续用自然语言让 Agent 操作，不需要手动跑导入脚本。常用说法：
-
-```text
-用 $xsxb-frame-tuner 把 <Godot项目路径> 里的角色 SpriteFrames 接入 tuner。
-```
-
-```text
-用 $xsxb-frame-tuner 给 <Godot项目路径> 的 hero 添加 idle 动画，PNG 序列在 <PNG序列路径>，12fps，导入后打开 tuner。
-```
-
-```text
-用 $xsxb-frame-tuner 给 <Godot项目路径> 的 hero 一次加入 idle、run、jump、stand_attack，路径分别是 <四个PNG目录>，导入后检查每组框体并完整接入游戏。
-```
-
-```text
-用 $xsxb-frame-tuner 检查当前 Godot 项目的 XSXB runtime 是否和 tuner 保存的数据一致。
-```
-
-启动 Tuner 后，项目列表中的“Codex 宠物”会自动显示本机内置及自定义宠物。外部用 Hatch Pet 新建宠物后点击“刷新动画列表”即可看到；也可以点“导入新宠物”加入一个 1536×1872（v1）或 1536×2288（v2）的 WebP 图集。
-
-Agent 会负责选择/创建 XSXB 项目、批量复制帧素材、生成 manifest、逐组检查初始框体、同步完整 runtime 到 Godot、连接实际 gameplay，并在验证通过后启动 Webapp。打开页面后，人可以继续做艺术性微调并点击保存。
-
-## 本地数据
-
-本机生成的数据默认放在这些位置：
-
-```text
-data/projects/<project_id>/
-workspace/projects/<project_id>/assets/
-audio/projects/<project_id>/
-```
-
-这些目录会保存项目绑定、导入帧、attachments、音效和调参结果。它们默认不会进入 Git 仓库。
+更新器只接受 `JinBorn/Frame-Tuner` 的 `main` 分支，并保留工作区干净、仅快进更新的保护；有本地代码修改或分支分叉时不自动覆盖。工作台更新与 skill 安装分开，更新网页不会写入 `.codex`、`.agents`、`.claude`、`.cursor` 或 `.dsh` 的个人配置。Skill 升级需再次运行安装器并明确指定 `--replace`。
 
 ## 维护验证
 
-代码没有外部运行依赖，只需要 Node.js。维护者可以让 Agent 执行项目检查，检查内容等价于：
-
-```powershell
+```sh
 npm run check
 npm test
-npm run validate:lite -- --project <lite_project_id>
+npm run test:browser
+npm run typecheck:cocos
 ```
 
-对已绑定的 Godot 项目还可以运行：
+`npm test` 包含真实浏览器的导出与切换竞态回归，需要本机 Chrome、Edge 或 Chromium。`typecheck:cocos` 需要安装 Creator 3.8.8。Windows 上的浏览器闭环、Creator 实际构建与播放结果见 [验收记录](docs/verification-2026-10-06.md)。
 
-```powershell
-node tools\validate_import.js --project <xsxb_project_id> --project-root "<Godot项目路径>" --require-gameplay --strict
-```
-
-## 自动更新
-
-Tuner 页面每次打开后会检查官方 GitHub `main` 分支。发现新版本时，页面顶部会显示“更新并重启”按钮；点击后会快进更新本地 Tuner、同步仓库自带的 `xsxb-frame-tuner` skill、重启本地服务并自动重新连接。
-
-为保护本地工作，自动更新只接受官方仓库、`main` 分支和没有未提交代码修改的工作区；Tuner 内有未保存的调参时按钮也会保持禁用。运行时项目数据和未跟踪素材不会被覆盖。
+安装器测试仅操作临时目录。Agent 客户端目录依据官方文档验证，未向模型 API 发起请求，也没有声称所有客户端的自主执行行为已实测。Cocos 的包检查、类型检查与 Creator 运行验证范围见 [Cocos 接入文档](docs/cocos-3.8.8.md)。
 
 ## License
 
 MIT
-
-<!-- updater smoke-test marker -->

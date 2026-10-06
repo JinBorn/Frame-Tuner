@@ -1,6 +1,6 @@
 # Frame Tuner Lite Contract
 
-Frame Tuner Lite is the non-Godot edition of the same editor. Use it when the user wants to process frame sequences, layered animation, attack trails, transparent PNG output, or sprite sheets without binding a game project.
+Frame Tuner Lite is the isolated legacy workspace. Use it for existing Lite projects or an explicitly requested Lite workflow. New neutral projects use the common workspace and [portable-contract.md](portable-contract.md).
 
 ## Isolation
 
@@ -48,17 +48,15 @@ Use `--layer front` for an upper layer. Add `--independent` only when the layer 
 - Both export modes copy every referenced SFX into the batch-level `audio/` folder. Sequence mode writes `audio.files` and `audio.events` to `export.json`; Sheet mode writes them only to `spritesheet.json`. An event records its zero- and one-based output frame, millisecond time, source/display frame, asset id, and relative audio path. Bindings on disabled frames do not export. Map each event to the first duration-derived output sample at or after the authoritative source-frame arrival time instead of dropping or repeating it.
 - `spritesheet.json` is the only timing authority for Sheet output. Because common sheet consumers expect integer milliseconds, distribute rounding over the ordered samples using cumulative elapsed time so the integers preserve the rounded animation total (for example, six 22.5 ms samples become `23,22,23,22,23,22`, totaling 135 ms).
 - When the Agent imports a Lite-exported `spritesheet.json`, copy its referenced audio files into the target Lite project's stable `workspace/lite/.../audio/` directory and recreate the bindings on `outputFrameIndex`. Preserve unrelated animations' existing SFX.
-- Clicking either export button must immediately open the browser's native writable-directory picker. Write a uniquely named batch folder under the user-selected directory; never silently export to `workspace/lite/`, Downloads, Temp, or another fixed location.
+- Legacy Lite export buttons use the browser's writable-directory picker. This is a human UI path, not a required Agent capability. Use the common CLI for new headless export workflows; do not silently move an existing Lite project into the common registry.
 - Keep sprite sheets within browser canvas limits. Reduce columns or transparent padding if the UI reports an oversized sheet.
 
 ## Validation
 
-Run:
+For existing Lite project data, run:
 
 ```powershell
-npm run check
-npm test
 npm run validate:lite -- --project <project_id>
 ```
 
-Then open the Lite page, select the imported owner sequence, bind one SFX to a frame card, verify preview playback, and export at least one small transparent sequence. Inspect an individual PNG, the generated sprite sheet, the packaged audio file, and the matching JSON event. Also verify Full Tuner still answers on port `5179` and its active project has not changed.
+For requested UI/export verification, inspect a representative output image, timing metadata, and referenced audio/events. Do not create sample audio bindings in the user's data merely to satisfy a test. Run repository checks when changing code. Report whether preview or export was actually exercised, and preserve the common workbench's project selection.

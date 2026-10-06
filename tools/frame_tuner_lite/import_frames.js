@@ -3,6 +3,7 @@ const path = require("node:path");
 const {
   ROOT,
   animationDestination,
+  assertImportTarget,
   assetVersion,
   copyStable,
   naturalCompare,
@@ -28,6 +29,9 @@ function run(argv = process.argv.slice(2)) {
   if (!files.length) throw new Error(`No PNG files found: ${source}`);
 
   const project = store.ensureProject(projectId, String(args.label || projectId));
+  assertImportTarget(project, profileId, animationId, args.replace === true);
+  for (const name of files) pngSize(path.join(source, name));
+  if (!Number.isFinite(Number(args.fps ?? 12)) || Number(args.fps ?? 12) <= 0) throw new Error("FPS must be a positive number.");
   const destination = animationDestination(project, profileId, animationId);
   const frames = files.map((name, index) => {
     const input = path.join(source, name);

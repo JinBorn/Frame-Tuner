@@ -1,7 +1,7 @@
 {
   "name": "xsxb-frame-tuner",
   "version": "0.3.0",
-  "description": "Standalone webapp and Codex skill for tuning frame-based Godot character animations.",
+  "description": "Local engine-neutral frame animation workbench with optional game-engine adapters and portable Agent skills.",
   "private": false,
   "license": "MIT",
   "type": "commonjs",
@@ -10,11 +10,23 @@
     "start:lite": "node tools/frame_tuner_lite/server.js",
     "validate:lite": "node tools/frame_tuner_lite/validate.js",
     "validate:unity": "node tools/validate_unity.js",
-    "check": "node --check tools/http_content_type.js && node --check tools/animation_tuner/server.js && node --check tools/animation_tuner/public/binding_scope.js && node --check tools/animation_tuner/public/transform_selection.js && node --check tools/animation_tuner/public/animation_families.js && node --check tools/animation_tuner/public/timing_modes.js && node --check tools/animation_tuner/public/app.js && node --check tools/animation_tuner/public/attack_trails.js && node --check tools/frame_tuner_lite/server.js && node --check tools/frame_tuner_lite/store.js && node --check tools/frame_tuner_lite/import_common.js && node --check tools/frame_tuner_lite/import_frames.js && node --check tools/frame_tuner_lite/import_sheet.js && node --check tools/frame_tuner_lite/validate.js && node --check tools/frame_tuner_lite/public/lite.js && node --check tools/attack_trails.js && node --check tools/attack_trail_presets.js && node --check tools/scene_profiles.js && node --check tools/codex_pets.js && node --check tools/import_frames.js && node --check tools/import_batch.js && node --check tools/import_spriteframes.js && node --check tools/validate_import.js && node --check tools/godot_sync.js && node --check tools/godot_runtime.js && node --check tools/godot_attack_trail_smoke.js && node --check tools/runtime_data.js && node --check tools/unity_runtime.js && node --check tools/unity_sync.js && node --check tools/unity_batch_smoke.js && node --check tools/validate_unity.js && node --check tools/updater.js && node --check tools/self_test.js",
-    "test": "node tools/self_test.js",
-    "smoke:unity": "node tools/unity_batch_smoke.js"
+    "check": "node tools/check.js",
+    "test": "node tools/test.js",
+    "smoke:unity": "node tools/unity_batch_smoke.js",
+    "tuner": "node tools/frame_tuner.js",
+    "skill:install": "node tools/install_skill.js",
+    "test:browser": "node tools/browser_smoke.js",
+    "test:cocos": "node tools/cocos/self_test.js",
+    "test:cocos:browser": "node tools/cocos/browser_smoke.js",
+    "typecheck:cocos": "node tools/cocos/typecheck.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }

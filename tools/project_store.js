@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { ADAPTERS, adapterForProject } = require("./engine_adapters");
 
 const DEFAULT_PROJECT_ID = "default";
 const DEFAULT_PROJECT_LABEL = "Default Empty Project";
@@ -47,8 +48,11 @@ function readJson(filePath, fallback) {
     if (!fs.existsSync(filePath)) return clone(fallback);
     const text = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
     return JSON.parse(text);
-  } catch {
-    return clone(fallback);
+  } catch (cause) {
+    const error = new Error(`Cannot read project JSON; the original file was preserved: ${filePath}. ${cause.message}`);
+    error.code = "invalid_project_json";
+    error.cause = cause;
+    throw error;
   }
 }
 
@@ -87,11 +91,7 @@ function unityProjectName(projectRoot) {
 }
 
 function projectEngine(project) {
-  const kind = String(project?.kind || project?.engine || "godot").toLowerCase();
-  if (kind === "unity") return "unity";
-  if (kind === "frame_lite") return "lite";
-  if (kind === "codex_pets") return "codex_pets";
-  return "godot";
+  return adapterForProject(project).engine;
 }
 
 function bindingScopeForProject(registry, project) {
@@ -110,11 +110,12 @@ function bindingScopeForProject(registry, project) {
   };
 }
 
-function uniqueId(baseId, usedIds) {
+function uniqueId(baseId, usedIds, caseInsensitive = false) {
   const base = slug(baseId, "project");
+  const usedKeys = caseInsensitive ? new Set(Array.from(usedIds, (id) => id.toLowerCase())) : usedIds;
   let candidate = base;
   let suffix = 2;
-  while (usedIds.has(candidate)) {
+  while (usedKeys.has(caseInsensitive ? candidate.toLowerCase() : candidate)) {
     candidate = `${base}_${suffix}`;
     suffix += 1;
   }
@@ -150,6 +151,7 @@ function projectPaths(root, project) {
     frameAudio: path.join(dataDir, "frame_audio_bindings.json"),
     frameImageAttachments: path.join(dataDir, "frame_image_attachments.json"),
     attackTrails: path.join(dataDir, "attack_trails.json"),
+    settings: path.join(dataDir, "lite_settings.json"),
   };
 }
 
@@ -181,6 +183,9 @@ function ensureProjectFiles(root, project) {
   if (!fs.existsSync(paths.attackTrails)) {
     writeJson(paths.attackTrails, { schemaVersion: 21, presets: [], bindings: {} });
   }
+  if (projectEngine(project) === "lite" && !fs.existsSync(paths.settings)) {
+    writeJson(paths.settings, { schemaVersion: 1, canvas: { padding: 24, autoMeasured: false }, export: { sheetColumns: 8 } });
+  }
 }
 
 function normalizeProject(raw, usedIds, fallback) {
@@ -200,11 +205,8 @@ function normalizeProject(raw, usedIds, fallback) {
 function normalizeRegistry(raw) {
   const source = raw && typeof raw === "object" ? raw : {};
   const usedIds = new Set();
-  let projects = Array.isArray(source.projects) ? source.projects : [];
-  if (projects.some((project) => slug(project?.id || project?.label || "") !== DEFAULT_PROJECT_ID)) {
-    projects = projects.filter((project) => slug(project?.id || project?.label || "") !== DEFAULT_PROJECT_ID);
-  }
-  if (!projects.length) projects = [];
+  // "default" is also a valid authored project ID, not evidence of a placeholder.
+  const projects = Array.isArray(source.projects) ? source.projects : [];
   const normalizedProjects = projects.map((project, index) => normalizeProject(project, usedIds, index === 0 ? DEFAULT_PROJECT_ID : `project_${index + 1}`));
   const requestedActiveId = source.activeProjectId || normalizedProjects[0]?.id
     ? slug(source.activeProjectId || normalizedProjects[0]?.id, DEFAULT_PROJECT_ID)
@@ -231,6 +233,11 @@ function createProjectStore(root) {
       activeProjectId: "",
       projects: [],
     });
+    if (!raw || typeof raw !== "object" || !Array.isArray(raw.projects)) {
+      const error = new Error(`Invalid project registry; the original file was preserved: ${projectsPath}`);
+      error.code = "invalid_project_json";
+      throw error;
+    }
     const registry = normalizeRegistry(raw);
     for (const project of registry.projects) ensureProjectFiles(root, project);
     if (!registryExists || JSON.stringify(raw) !== JSON.stringify(registry)) writeJson(projectsPath, registry);
@@ -245,6 +252,7 @@ function createProjectStore(root) {
   }
 
   function resolveProject(registry, projectId) {
+    if (projectId) return registry.projects.find((project) => project.id === slug(projectId, DEFAULT_PROJECT_ID));
     const requested = projectId ? slug(projectId, DEFAULT_PROJECT_ID) : registry.activeProjectId;
     return registry.projects.find((project) => project.id === requested)
       || registry.projects.find((project) => project.id === registry.activeProjectId)
@@ -277,11 +285,14 @@ function createProjectStore(root) {
       }
     }
 
-    const kind = String(payload.kind || payload.engine || "godot").toLowerCase();
+    const kind = String(payload.kind || payload.engine || (projectRoot ? "godot" : "frame_lite")).toLowerCase();
+    if (!ADAPTERS[kind]) throw new Error(`Unsupported project kind: ${kind}`);
     const detectedName = kind === "unity" ? unityProjectName(projectRoot) : godotProjectName(projectRoot);
     const label = String(payload.label || payload.name || payload.id || detectedName || (projectRoot ? path.basename(projectRoot) : "") || "New Project").trim() || "New Project";
     const usedIds = new Set(registry.projects.map((project) => project.id));
-    const id = uniqueId(payload.id || label, usedIds);
+    // New projects need distinct directories on Windows as well as POSIX hosts.
+    // Registry normalization keeps historical IDs and data paths unchanged.
+    const id = uniqueId(payload.id || label, usedIds, true);
     const project = {
       id,
       label,
@@ -303,6 +314,7 @@ function createProjectStore(root) {
       label: project.label,
       kind: project.kind || "godot",
       engine: projectEngine(project),
+      capabilities: adapterForProject(project),
       projectRoot: project.projectRoot,
       petRoot: project.petRoot || "",
       dataDir: reslash(project.dataDir),

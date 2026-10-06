@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createLiteStore, reslash, slug } = require("./store");
 
-const ROOT = path.resolve(__dirname, "..", "..");
+const ROOT = path.resolve(process.env.FRAME_TUNER_ROOT || path.join(__dirname, "..", ".."));
 const store = createLiteStore(ROOT);
 
 function parseArgs(argv) {
@@ -53,6 +53,14 @@ function loadManifest(project) {
   return store.readJson(store.paths(project).manifest, { schemaVersion: 1, profiles: [] });
 }
 
+function assertImportTarget(project, profileId, animationId, replace = false) {
+  const target = store.paths(project);
+  const manifest = loadManifest(project);
+  for (const [key, fallback] of [["tuning", {}], ["frameAudio", []], ["frameImageAttachments", []], ["attackTrails", {}], ["settings", {}]]) store.readJson(target[key], fallback);
+  const existing = manifest.profiles?.find((entry) => entry.id === profileId)?.animations?.some((entry) => String(entry.id || entry.name) === animationId);
+  if (existing && !replace) throw new Error(`Animation ${profileId}/${animationId} already exists; use --replace to replace it.`);
+}
+
 function saveAnimation({ project, profileId, profileLabel, animation }) {
   const target = store.paths(project);
   const manifest = loadManifest(project);
@@ -98,6 +106,7 @@ function saveAnimation({ project, profileId, profileLabel, animation }) {
 module.exports = {
   ROOT,
   animationDestination,
+  assertImportTarget,
   assetVersion,
   copyStable,
   naturalCompare,

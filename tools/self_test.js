@@ -23,7 +23,7 @@ const {
   saveSharedAttackTrailPresets,
 } = require("./attack_trail_presets");
 const { averageFrameTiming, groupFpsForDuration, frameSynchronousEffectSample, liteExportSamples, bakedSequenceSamples, distributeIntegerMilliseconds } = require("./animation_tuner/public/timing_modes");
-const { candidateSkillTargets, resolveSkillTarget, syncSkillDirectory, trustedRemote } = require("./updater");
+const { trustedRemote } = require("./updater");
 const { withUtf8Charset } = require("./http_content_type");
 const { createLiteStore } = require("./frame_tuner_lite/store");
 const {
@@ -654,7 +654,7 @@ assert.match(tunerAppSource, /changed_groups: config\?\.projectEngine === "unity
 assert.match(tunerAppSource, /bakedPixelScale,/);
 assert.match(tunerAppSource, /function isMarkerOnlyFrameAttachment\(attachment\)/);
 assert.match(tunerAppSource, /endsWith\("_hand_anchor\.png"\)/);
-assert.match(tunerAppSource, /excludeMarkerOnlyAttachments: options\.bakedComposite === true/);
+// Editing-marker exclusion is verified through rendered pixels in browser_export_test.js.
 assert.match(tunerAppSource, /\.filter\(\(attachment\) => !isMarkerOnlyFrameAttachment\(attachment\)\)/);
 assert.match(tunerAppSource, /function liteExportAudio\(/);
 assert.match(tunerAppSource, /XsxbTimingModes\.bakedSequenceSamples\(playableFrames\)/);
@@ -1150,34 +1150,12 @@ try {
   fs.rmSync(boxEstimatorTestRoot, { recursive: true, force: true });
 }
 
-assert.equal(trustedRemote("https://github.com/sparklecatta-lang/XSXB-Frame-Tuner.git"), true);
-assert.equal(trustedRemote("git@github.com:sparklecatta-lang/XSXB-Frame-Tuner.git"), true);
-assert.equal(trustedRemote("https://github.com/example/XSXB-Frame-Tuner.git"), false);
-assert.equal(trustedRemote("https://evilgithub.com/sparklecatta-lang/XSXB-Frame-Tuner.git"), false);
-const candidates = candidateSkillTargets({ USERPROFILE: "C:\\Users\\demo" }, "C:\\Users\\fallback");
-assert.equal(candidates[0], path.resolve("C:\\Users\\demo", ".codex", "skills", "xsxb-frame-tuner"));
-const customCandidates = candidateSkillTargets({ CODEX_HOME: "D:\\Codex", USERPROFILE: "C:\\Users\\demo" }, "C:\\Users\\fallback");
-assert.equal(customCandidates[0], path.resolve("D:\\Codex", "skills", "xsxb-frame-tuner"));
-assert.equal(resolveSkillTarget({ CODEX_HOME: "D:\\Codex", USERPROFILE: "C:\\Users\\demo" }), customCandidates[0]);
-
-const updateTestRoot = fs.mkdtempSync(path.join(os.tmpdir(), "xsxb-updater-test-"));
-try {
-  const skillSource = path.join(updateTestRoot, "source");
-  const skillTarget = path.join(updateTestRoot, "target", "xsxb-frame-tuner");
-  fs.mkdirSync(skillSource, { recursive: true });
-  fs.mkdirSync(skillTarget, { recursive: true });
-  fs.writeFileSync(path.join(skillSource, "SKILL.md"), "new skill\n", "utf8");
-  fs.writeFileSync(path.join(skillSource, "reference.md"), "new reference\n", "utf8");
-  fs.writeFileSync(path.join(skillTarget, "SKILL.md"), "old skill\n", "utf8");
-  fs.writeFileSync(path.join(skillTarget, "stale.md"), "stale\n", "utf8");
-  const synced = syncSkillDirectory(skillSource, skillTarget);
-  assert.equal(synced.changed, true);
-  assert.equal(fs.readFileSync(path.join(skillTarget, "SKILL.md"), "utf8"), "new skill\n");
-  assert.equal(fs.existsSync(path.join(skillTarget, "reference.md")), true);
-  assert.equal(fs.existsSync(path.join(skillTarget, "stale.md")), false);
-} finally {
-  fs.rmSync(updateTestRoot, { recursive: true, force: true });
-}
+assert.equal(trustedRemote("https://github.com/JinBorn/Frame-Tuner.git"), true);
+assert.equal(trustedRemote("git@github.com:JinBorn/Frame-Tuner.git"), true);
+assert.equal(trustedRemote("ssh://git@github.com/JinBorn/Frame-Tuner.git"), true);
+assert.equal(trustedRemote("https://github.com/sparklecatta-lang/XSXB-Frame-Tuner.git"), false);
+assert.equal(trustedRemote("https://github.com/example/Frame-Tuner.git"), false);
+assert.equal(trustedRemote("https://evilgithub.com/JinBorn/Frame-Tuner.git"), false);
 
 const liteStoreTestRoot = fs.mkdtempSync(path.join(os.tmpdir(), "xsxb-lite-store-test-"));
 try {

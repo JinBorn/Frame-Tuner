@@ -31,8 +31,11 @@ function readJson(filePath, fallback) {
   try {
     if (!fs.existsSync(filePath)) return clone(fallback);
     return JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
-  } catch {
-    return clone(fallback);
+  } catch (cause) {
+    const error = new Error(`Cannot read project JSON; the original file was preserved: ${filePath}. ${cause.message}`);
+    error.code = "invalid_project_json";
+    error.cause = cause;
+    throw error;
   }
 }
 
@@ -59,6 +62,11 @@ function createLiteStore(root) {
 
   function readRegistry() {
     const raw = readJson(registryPath, { schemaVersion: 1, activeProjectId: "", projects: [] });
+    if (!raw || typeof raw !== "object" || !Array.isArray(raw.projects)) {
+      const error = new Error(`Invalid project registry; the original file was preserved: ${registryPath}`);
+      error.code = "invalid_project_json";
+      throw error;
+    }
     const used = new Set();
     const projects = (Array.isArray(raw.projects) ? raw.projects : []).map(normalizeProject).filter((project) => {
       if (used.has(project.id)) return false;
@@ -127,6 +135,7 @@ function createLiteStore(root) {
 
   function resolveProject(projectId) {
     const registry = readRegistry();
+    if (projectId) return registry.projects.find((project) => project.id === slug(projectId, "")) || null;
     return registry.projects.find((project) => project.id === slug(projectId, ""))
       || registry.projects.find((project) => project.id === registry.activeProjectId)
       || registry.projects[0]

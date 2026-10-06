@@ -1,5 +1,7 @@
 # Godot Runtime Contract
 
+This document applies only to requested Godot runtime work. It preserves adapter behavior; it does not make gameplay integration part of every animation import. Use [godot-contract.md](godot-contract.md) to choose the appropriate scope.
+
 ## Save and Sync Boundary
 
 Treat tuner Save as the synchronization point. The bound Godot project must receive and consume:

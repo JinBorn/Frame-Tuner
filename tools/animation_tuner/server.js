@@ -32,11 +32,33 @@ const {
 const { checkForUpdates, performUpdate } = require("../updater");
 const { withUtf8Charset } = require("../http_content_type");
 const { frameBoxCoverageIssues } = require("../box_estimator");
+const { createLiteApp } = require("../frame_tuner_lite/server");
+const { createWorkbenchService, resolveWorkbenchAsset } = require("../workbench_service");
+const { adapterForProject, capabilities } = require("../engine_adapters");
 
-const ROOT = path.resolve(__dirname, "..", "..");
+const ROOT = path.resolve(process.env.FRAME_TUNER_ROOT || path.join(__dirname, "..", ".."));
 const PUBLIC = path.join(__dirname, "public");
 const PORT = Number(process.env.PORT || 5179);
 const projectStore = createProjectStore(ROOT);
+const featureSettingsPath = path.join(ROOT, "data", "workbench_settings.json");
+let codexPetsEnabled = process.env.FRAME_TUNER_CODEX_PETS === "1" || projectStore.readJson(featureSettingsPath, {}).codexPets === true;
+function availableRegistry() {
+  const registry = projectStore.readRegistry();
+  if (!codexPetsEnabled) registry.projects = registry.projects.filter((entry) => entry.kind !== "codex_pets");
+  if (!registry.projects.some((entry) => entry.id === registry.activeProjectId)) registry.activeProjectId = registry.projects[0]?.id || "";
+  return registry;
+}
+const neutralStore = {
+  ...projectStore,
+  paths: projectStore.projectPaths,
+  readRegistry: availableRegistry,
+  resolveProject: (id) => {
+    const registry = availableRegistry();
+    return registry.projects.find((entry) => entry.id === String(id || registry.activeProjectId)) || null;
+  },
+};
+const neutralApp = createLiteApp({ root: ROOT, store: neutralStore });
+const workbench = createWorkbenchService({ root: ROOT, store: neutralStore, codexPets: () => codexPetsEnabled, codexPetsToggle: true });
 const UPDATE_TOKEN = crypto.randomBytes(24).toString("hex");
 let restartScheduled = false;
 
@@ -62,7 +84,7 @@ const SCENE_SKIP_DIRS = new Set([
 ]);
 
 function ensureDataFiles() {
-  ensureCodexPetsProject(projectStore);
+  if (codexPetsEnabled) ensureCodexPetsProject(projectStore);
 }
 
 function send(res, status, body, contentType = "application/json") {
@@ -80,10 +102,16 @@ function send(res, status, body, contentType = "application/json") {
 }
 
 function readBody(req) {
+  if (req.workbenchBody !== undefined) return Promise.resolve(req.workbenchBody);
   return new Promise((resolve, reject) => {
     let body = "";
+    let bytes = 0;
     req.setEncoding("utf8");
-    req.on("data", (chunk) => { body += chunk; });
+    req.on("data", (chunk) => {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > 256 * 1024 * 1024) { const error = new Error("Request body exceeds 256 MiB."); error.status = 413; reject(error); return; }
+      body += chunk;
+    });
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
@@ -199,6 +227,7 @@ function normalizeManifest(raw) {
       id: String(profile.id || profile.name || "profile"),
       label: String(profile.label || profile.id || profile.name || "Profile"),
       kind: String(profile.kind || "actor"),
+      sourceFacesLeft: profile.source_faces_left === true || profile.sourceFacesLeft === true,
       bodyScale: Math.max(0.001, Number(profile.bodyScale ?? 1)),
       runtimeScale: Math.max(0.001, Number(profile.runtimeScale ?? 1)),
       supports: Array.isArray(profile.supports) ? profile.supports : DEFAULT_SUPPORTS,
@@ -209,11 +238,16 @@ function normalizeManifest(raw) {
 }
 
 function projectFromRequest(projectId, options = {}) {
-  let registry = projectStore.readRegistry();
+  let registry = availableRegistry();
   const requestedId = projectId ? projectStore.slug(projectId) : "";
+  if (requestedId && !registry.projects.some((entry) => entry.id === requestedId)) {
+    const error = new Error(`Project not found or optional integration disabled: ${requestedId}`);
+    error.status = 404; error.code = "project_not_found"; throw error;
+  }
   if (options.activate && requestedId && registry.projects.some((entry) => entry.id === requestedId) && registry.activeProjectId !== requestedId) {
     registry.activeProjectId = requestedId;
-    registry = projectStore.writeRegistry(registry);
+    projectStore.setActiveProject(requestedId);
+    registry = availableRegistry();
   }
   return {
     registry,
@@ -285,6 +319,7 @@ function profileForClient(profile) {
     id: profile.id,
     label: profile.label,
     kind: profile.kind,
+    sourceFacesLeft: profile.sourceFacesLeft === true,
     scale_semantic: "character_group_frame",
     anchor_mode: "manifest_anchor_mode",
     supports: profile.supports,
@@ -334,6 +369,9 @@ function buildGroups(manifest, tuningFile) {
         ?? null;
       groups.push({
         name: groupName,
+        animationId,
+        loop: animation.loop !== false,
+        sourceFacesLeft: profile.sourceFacesLeft === true || profile.source_faces_left === true,
         runtimeAnimation: `${profile.id}/${animationId}`,
         profileId: profile.id,
         profileLabel: profile.label,
@@ -973,6 +1011,8 @@ function syncGodotRuntimeProjectId(project) {
 
 function configResponse(projectId) {
   const { registry, project } = projectFromRequest(projectId, { activate: true });
+  if (!project || projectEngine(project) === "lite") return neutralApp.configResponse(project?.id);
+  workbench.projectData(project.id);
   if (!project) {
     return {
       root: ROOT,
@@ -1068,6 +1108,7 @@ function configResponse(projectId) {
     },
     projectKind: project.kind || "godot",
     projectEngine: projectEngine(project),
+    capabilities: adapterForProject(project),
     groups,
   };
 }
@@ -1348,7 +1389,7 @@ function replaceFrameImage(payload, project) {
 }
 
 function projectsResponse() {
-  const registry = projectStore.readRegistry();
+  const registry = availableRegistry();
   return {
     activeProjectId: registry.activeProjectId,
     projects: registry.projects.map(projectStore.projectForClient),
@@ -1381,7 +1422,8 @@ function scheduleServerRestart() {
 
 function serveStatic(req, res, pathname) {
   const requestPath = pathname === "/" ? "index.html" : pathname.slice(1);
-  const full = safeResolve(PUBLIC, requestPath);
+  const staticRoot = ["lite.js", "lite.css"].includes(requestPath) ? path.resolve(__dirname, "..", "frame_tuner_lite", "public") : PUBLIC;
+  const full = safeResolve(staticRoot, requestPath);
   if (!full || !fs.existsSync(full) || fs.statSync(full).isDirectory()) {
     return send(res, 404, "Not found", "text/plain");
   }
@@ -1398,6 +1440,32 @@ ensureDataFiles();
 const server = http.createServer(async (req, res) => {
   try {
     const parsed = new URL(req.url, "http://127.0.0.1");
+    if (req.method === "POST") req.workbenchBody = await readBody(req);
+    if (req.method === "GET" && parsed.pathname === "/api/workbench/capabilities") return send(res, 200, capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true }));
+    if (req.method === "POST" && parsed.pathname === "/api/workbench/projects") return send(res, 201, workbench.createProject(JSON.parse(req.workbenchBody)));
+    if (req.method === "POST" && parsed.pathname === "/api/workbench/import") return send(res, 200, workbench.importAnimation(JSON.parse(req.workbenchBody)));
+    if (req.method === "POST" && parsed.pathname === "/api/workbench/export") {
+      const payload = JSON.parse(req.workbenchBody);
+      const result = await require("../export_package").buildExportPackage(payload, { projectData: workbench.projectData(payload.projectId), root: ROOT });
+      res.setHeader("content-disposition", `attachment; filename="${result.filename.replace(/["\r\n]/g, "_")}"`);
+      return send(res, 200, result.buffer, "application/zip");
+    }
+    if (req.method === "POST" && parsed.pathname === "/api/workbench/codex-pets") {
+      const payload = JSON.parse(req.workbenchBody);
+      if (typeof payload.enabled !== "boolean") return send(res, 400, { error: "enabled must be a boolean", code: "invalid_feature" });
+      codexPetsEnabled = payload.enabled;
+      projectStore.writeJson(featureSettingsPath, { codexPets: codexPetsEnabled });
+      ensureDataFiles();
+      return send(res, 200, { ok: true, capabilities: capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true }), ...projectsResponse() });
+    }
+    const neutralRoutes = new Set(["/api/save", "/api/lite/settings", "/api/duplicate-frame", "/api/frame-audio", "/api/attack-trail-texture", "/api/frame-attachment-image", "/api/replace-frame", "/api/replace-animation"]);
+    if (req.method === "POST" && neutralRoutes.has(parsed.pathname)) {
+      const payload = JSON.parse(req.workbenchBody);
+      const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
+      if (project) workbench.projectData(project.id);
+      if (projectEngine(project) === "lite") return neutralApp.requestHandler(req, res);
+      if (projectEngine(project) === "unsupported") return send(res, 400, { error: "Unsupported project kind; saving has been blocked.", code: "unsupported_engine" });
+    }
     if (req.method === "GET" && parsed.pathname === "/api/update-status") {
       return send(res, 200, { ...checkForUpdates(ROOT), token: UPDATE_TOKEN, restarting: restartScheduled });
     }
@@ -1417,23 +1485,24 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && parsed.pathname === "/api/projects") {
       const payload = JSON.parse(await readBody(req));
+      if (payload.kind === "codex_pets" && !codexPetsEnabled) return send(res, 400, { error: "Enable Codex Pets explicitly first.", code: "integration_disabled" });
       const registry = projectStore.addProject(payload);
       return send(res, 200, {
         ok: true,
-        activeProjectId: registry.activeProjectId,
-        projects: registry.projects.map(projectStore.projectForClient),
+        ...projectsResponse(),
       });
     }
     if (req.method === "POST" && parsed.pathname === "/api/projects/active") {
       const payload = JSON.parse(await readBody(req));
+      projectFromRequest(payload.projectId);
       const registry = projectStore.setActiveProject(payload.projectId);
       return send(res, 200, {
         ok: true,
-        activeProjectId: registry.activeProjectId,
-        projects: registry.projects.map(projectStore.projectForClient),
+        ...projectsResponse(),
       });
     }
     if (req.method === "POST" && parsed.pathname === "/api/codex-pets/import") {
+      if (!codexPetsEnabled) return send(res, 400, { error: "Enable Codex Pets explicitly first.", code: "integration_disabled" });
       const payload = JSON.parse(await readBody(req));
       const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
       const imported = importCodexPet(project, payload);
@@ -1613,7 +1682,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && parsed.pathname === "/asset") {
       const relPath = parsed.searchParams.get("path");
-      const full = safeResolve(ROOT, relPath);
+      const full = resolveWorkbenchAsset(ROOT, relPath);
       const ext = path.extname(full || "").toLowerCase();
       const imageTypes = {
         ".png": "image/png",
@@ -1621,6 +1690,7 @@ const server = http.createServer(async (req, res) => {
         ".jpeg": "image/jpeg",
         ".webp": "image/webp",
         ".gif": "image/gif",
+        ...neutralApp.AUDIO_MIME_BY_EXTENSION,
       };
       if (!full || !fs.existsSync(full) || !imageTypes[ext]) {
         return send(res, 404, "Not found", "text/plain");
@@ -1630,12 +1700,13 @@ const server = http.createServer(async (req, res) => {
     }
     return serveStatic(req, res, parsed.pathname);
   } catch (error) {
-    console.error(error);
-    return send(res, 500, { error: String(error.message || error) });
+    if (!error.status || error.status >= 500) console.error(error.message || error);
+    return send(res, error.status || (error instanceof SyntaxError ? 400 : 500), { error: String(error.message || error), code: error.code || "request_failed" });
   }
 });
 
-server.listen(PORT, "127.0.0.1", () => {
+if (require.main === module) server.listen(PORT, "127.0.0.1", () => {
   console.log(`XSXB Frame Tuner running at http://127.0.0.1:${PORT}`);
   console.log(`Workspace root: ${ROOT}`);
 });
+module.exports = { server, configResponse, workbench };

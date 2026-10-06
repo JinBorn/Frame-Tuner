@@ -471,4 +471,12 @@
   });
   initialize();
   setTimeout(() => { applyLiteLabels(); syncSettings(); }, 500);
+  // Keep the original per-file directory exporter available, while offering the
+  // same metadata-rich ZIP workflow as the main workbench in every browser.
+  if (!window.FrameTunerPortable && !document.querySelector('script[src^="/portable_export.js"]')) {
+    const script = document.createElement("script");
+    script.src = "/portable_export.js";
+    script.onerror = () => { const status = input("liteExportStatus"); if (status) status.textContent = "ZIP 导出模块加载失败；请刷新页面。"; };
+    document.body.append(script);
+  } else window.FrameTunerPortable?.initialize();
 })();

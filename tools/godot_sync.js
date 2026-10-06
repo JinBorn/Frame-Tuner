@@ -25,6 +25,7 @@ function isInside(childPath, parentPath) {
 function validGodotProjectRoot(project) {
   const projectRoot = project?.projectRoot ? path.resolve(String(project.projectRoot)) : "";
   if (!projectRoot || !fs.existsSync(projectRoot) || !fs.statSync(projectRoot).isDirectory()) return "";
+  if (!fs.existsSync(path.join(projectRoot, "project.godot"))) return "";
   return projectRoot;
 }
 

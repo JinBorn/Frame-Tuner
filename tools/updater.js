@@ -1,11 +1,9 @@
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-const OFFICIAL_REPOSITORY = "https://github.com/sparklecatta-lang/XSXB-Frame-Tuner.git";
+const OFFICIAL_REPOSITORY = "https://github.com/JinBorn/Frame-Tuner.git";
 const OFFICIAL_BRANCH = "main";
-const SKILL_NAME = "xsxb-frame-tuner";
 
 function runGit(root, args, options = {}) {
   const result = spawnSync("git", args, {
@@ -28,27 +26,7 @@ function runGit(root, args, options = {}) {
 
 function trustedRemote(remote) {
   const value = String(remote || "").trim();
-  return /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)sparklecatta-lang\/XSXB-Frame-Tuner(?:\.git)?\/?$/i.test(value);
-}
-
-function candidateSkillTargets(env = process.env, home = os.homedir()) {
-  const candidates = [];
-  if (env.CODEX_HOME) candidates.push(path.join(env.CODEX_HOME, "skills", SKILL_NAME));
-  const userHome = env.USERPROFILE || env.HOME || home;
-  if (userHome) {
-    candidates.push(path.join(userHome, ".codex", "skills", SKILL_NAME));
-    candidates.push(path.join(userHome, ".agents", "skills", SKILL_NAME));
-  }
-  return [...new Set(candidates.map((entry) => path.resolve(entry)))];
-}
-
-function resolveSkillTarget(env = process.env, home = os.homedir()) {
-  const candidates = candidateSkillTargets(env, home);
-  if (env.CODEX_HOME && candidates.length) return candidates[0];
-  const existing = candidates.find((entry) => fs.existsSync(entry));
-  if (existing) return existing;
-  if (!candidates.length) throw new Error("Cannot resolve the user skill directory.");
-  return candidates[0];
+  return /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)JinBorn\/Frame-Tuner(?:\.git)?\/?$/i.test(value);
 }
 
 function inspectLocalRepository(root) {
@@ -62,7 +40,6 @@ function inspectLocalRepository(root) {
       remote: "",
       remoteTrusted: false,
       trackedDirty: false,
-      skillTarget: resolveSkillTarget(),
     };
   }
   const currentCommit = runGit(root, ["rev-parse", "HEAD"]).output;
@@ -77,7 +54,6 @@ function inspectLocalRepository(root) {
     remote,
     remoteTrusted: trustedRemote(remote),
     trackedDirty: Boolean(trackedStatus),
-    skillTarget: resolveSkillTarget(),
   };
 }
 
@@ -120,51 +96,6 @@ function checkForUpdates(root) {
   };
 }
 
-function samePath(left, right) {
-  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
-}
-
-function copyDirectory(source, target) {
-  fs.mkdirSync(target, { recursive: true });
-  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-    const sourcePath = path.join(source, entry.name);
-    const targetPath = path.join(target, entry.name);
-    if (entry.isDirectory()) copyDirectory(sourcePath, targetPath);
-    else if (entry.isFile()) fs.copyFileSync(sourcePath, targetPath);
-    else throw new Error(`Unsupported bundled skill entry: ${sourcePath}`);
-  }
-}
-
-function syncSkillDirectory(source, target) {
-  if (!fs.existsSync(path.join(source, "SKILL.md"))) throw new Error(`Bundled skill is missing: ${source}`);
-  if (fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) {
-    const resolved = fs.realpathSync(target);
-    if (samePath(resolved, source)) return { target, changed: false, mode: "linked" };
-    throw new Error(`Refusing to replace a skill symlink that points outside this tuner: ${target}`);
-  }
-
-  const parent = path.dirname(target);
-  fs.mkdirSync(parent, { recursive: true });
-  const stamp = `${process.pid}-${Date.now()}`;
-  const staging = path.join(parent, `.${SKILL_NAME}.update-${stamp}`);
-  const backup = path.join(parent, `.${SKILL_NAME}.backup-${stamp}`);
-  let movedExisting = false;
-  try {
-    copyDirectory(source, staging);
-    if (fs.existsSync(target)) {
-      fs.renameSync(target, backup);
-      movedExisting = true;
-    }
-    fs.renameSync(staging, target);
-    if (movedExisting) fs.rmSync(backup, { recursive: true, force: true });
-    return { target, changed: true, mode: "copied" };
-  } catch (error) {
-    if (fs.existsSync(staging)) fs.rmSync(staging, { recursive: true, force: true });
-    if (movedExisting && !fs.existsSync(target) && fs.existsSync(backup)) fs.renameSync(backup, target);
-    throw error;
-  }
-}
-
 function performUpdate(root) {
   const before = inspectLocalRepository(root);
   const blockReason = updateBlockReason(before, true);
@@ -179,14 +110,11 @@ function performUpdate(root) {
   }
 
   const afterCommit = runGit(root, ["rev-parse", "HEAD"]).output;
-  const skillSource = path.join(root, "skills", SKILL_NAME);
-  const skillResult = syncSkillDirectory(skillSource, before.skillTarget);
   return {
     updated: afterCommit !== before.currentCommit,
     previousCommit: before.currentCommit,
     currentCommit: afterCommit,
     latestCommit,
-    skill: skillResult,
     restartRequired: true,
   };
 }
@@ -194,13 +122,10 @@ function performUpdate(root) {
 module.exports = {
   OFFICIAL_BRANCH,
   OFFICIAL_REPOSITORY,
-  candidateSkillTargets,
   checkForUpdates,
   inspectLocalRepository,
   latestOfficialCommit,
   performUpdate,
-  resolveSkillTarget,
-  syncSkillDirectory,
   trustedRemote,
   updateBlockReason,
 };

@@ -1,5 +1,7 @@
 # Validation Gates
 
+These are the legacy Godot gameplay-integration gates. Apply them when full Godot gameplay wiring is requested, not to neutral imports, portable/Cocos exports, or optional metadata editing. Use [portable-contract.md](portable-contract.md) for the common workflow.
+
 Do not report success from syntax checks or generated files alone. Validate the user-visible integration.
 
 ## Deterministic Checks

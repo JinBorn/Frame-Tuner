@@ -40,12 +40,12 @@ Read this reference only when changing the tuner UI, save payload, or direct-man
 - Allow direct manipulation only when the attachment image itself is hit.
 - Drag to move; hold R plus wheel to rotate; hold Z plus wheel to scale.
 - Keep owner sprite manipulation in adjustment controls, not canvas gestures.
-- Apply the same owner/attachment transform formula in preview and Godot runtime.
+- Apply the same owner/attachment transform formula in preview, portable exports, and each engine adapter.
 
 ## Attack Trail Mode
 
 - Attack trails are independent profile/animation bindings stored in `attack_trails.json`; never store their sticks as collision boxes or ordinary frame-image attachments.
-- Hide this mode for Codex Pets projects. Normal Godot projects expose segment, texture, color, total duration, tail/head speed ratio, layer, and ordered-stick controls.
+- Hide this mode for Codex Pets projects. Projects with trail support expose segment, texture, color, total duration, tail/head speed ratio, layer, and ordered-stick controls.
 - Store stick endpoints in the same stable character/frame-local coordinates used by the runtime `VisualOwner`. Each stick records a zero-based frame and `framePhase`.
 - Each stick has a `headFrame` flag. Head-frame sticks are the only temporal head poses; unmarked sticks shape the spatial path but must never become a rendered head pose. New sticks use automatic mode: only the current last stick is a head frame, and the previous automatic last stick becomes a path-only guide when another stick is added. Preserve manually marked head frames and legacy flags.
 - The first stick is always the implicit zero-area path origin even when it is not a head frame. Keep only the last stick fixed as a head frame.
@@ -78,12 +78,12 @@ Read this reference only when changing the tuner UI, save payload, or direct-man
 - Hide update controls when the local commit already matches GitHub.
 - When an update exists, show the current and latest short commit IDs and one explicit Update and restart action.
 - Disable update while tuner edits are unsaved.
-- Never overwrite tracked local code changes, update a non-`main` branch, or trust a remote outside the official XSXB repository.
-- Update the tuner clone and installed `xsxb-frame-tuner` skill as one operation, then restart the local server and reconnect the page.
+- Never overwrite tracked local code changes, update a non-`main` branch, or trust a remote outside `JinBorn/Frame-Tuner`.
+- Update only the tuner clone, then restart the local server and reconnect the page. Skill installation/update is a separate explicit `tools/install_skill.js` operation and must not be inferred from a workbench update.
 
 ## Codex Pets Project
 
-- Show the auto-managed Codex Pets project in the normal project selector; show profiles as pets and groups as states.
+- Show Codex Pets only when the adapter has been explicitly enabled; show profiles as pets and groups as states.
 - Hide Godot-only scene scale and gameplay box panels in this project.
 - Render each atlas cell as an isolated `192x208` frame even though several frames share one WebP path.
 - Keep v1 animation timing visible but read-only; expose the 16 v2 look-direction cells as one `looking` group.

@@ -1,5 +1,7 @@
 # Unity Runtime Contract
 
+This is an optional adapter for an explicitly selected Unity project. A neutral import or portable export does not authorize creating a Unity binding or editing gameplay. Keep existing bindings usable; connect a game scene only when that integration is requested.
+
 ## Binding and authority
 
 - Bind Unity projects with `kind: "unity"` and an exact Unity project root containing `Assets/` and `ProjectSettings/ProjectVersion.txt`.
@@ -32,6 +34,6 @@ The derived `xsxb_runtime_data.json` must contain resolved per-frame millisecond
 ## Importer and validation
 
 - `XsxbRuntimeImporter` must import copied images as sprites and build `xsxb_runtime_data.asset` automatically after script-domain reload, including when JSON arrived before the importer compiled.
-- Run `npm run check`, `npm test`, and `npm run validate:unity -- --project <id>`.
+- Run `npm run validate:unity -- --project <id>` for project data. Run `npm run check` and `npm test` when changing the tool code.
 - Run `npm run smoke:unity` with the intended Unity editor version. A successful smoke must compile both runtime and editor importer and generate a database asset.
 - In the real project, verify the database `.asset` exists and the latest Unity compilation has no XSXB errors. Separate unrelated project compilation errors from XSXB failures.

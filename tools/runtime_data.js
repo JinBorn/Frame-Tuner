@@ -172,6 +172,10 @@ function buildRuntimeData(options = {}) {
           name: String(frame.name || ""),
           assetPath: String(bakedFrame?.assetPath || frame.path || ""),
           sourceAssetPath: String(frame.path || ""),
+          // A baked image already contains the crop; retain its source rectangle
+          // for provenance without asking runtime consumers to crop it twice.
+          crop: !bakedFrame && frame.crop ? clone(frame.crop) : null,
+          sourceCrop: frame.crop ? clone(frame.crop) : null,
           bakedComposite: Boolean(bakedFrame),
           bakedOffset: bakedFrame ? vector(bakedFrame.offset) : null,
           bakedMainAnchor: bakedFrame ? vector(bakedFrame.mainAnchor) : null,

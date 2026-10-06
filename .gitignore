@@ -24,6 +24,8 @@ __pycache__/
 data/projects.json
 data/projects.json.*
 data/projects.local.json
+data/workbench_settings.json
+data/workbench_settings.json.*
 data/projects/
 data/lite/
 !data/.gitkeep

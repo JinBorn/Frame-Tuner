@@ -5,24 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>XSXB Frame Tuner</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/style.css?v=20260801-attachment-lock" />
+    <link rel="stylesheet" href="/style.css?v=20261006-workbench" />
+    <link rel="stylesheet" href="/workbench.css?v=20261006" />
   </head>
   <body>
     <main class="app">
-      <aside class="sidebar">
+      <header class="workbenchHeader">
         <div class="brand">
-          <div class="mark"></div>
-          <div class="brandMain">
-            <div class="brandTop">
-              <h1>XSXB Frame Tuner</h1>
-              <div class="languageButtons" aria-label="Language">
-                <button type="button" class="languageButton" data-language="zh" title="中文">中</button>
-                <button type="button" class="languageButton" data-language="en" title="English">EN</button>
-              </div>
-            </div>
-            <p data-i18n="brandSubtitle">帧动画调参工作台</p>
-          </div>
+          <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 4h10v4H9v4h7v4H9v4H5V4Z" fill="currentColor"/><path d="m17 3 4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div class="brandMain"><h1>Frame Tuner</h1><p data-i18n="brandSubtitle">帧动画调参工作台</p></div>
+          <span class="localBadge"><i></i> LOCAL</span>
         </div>
+        <div class="headerActions">
+          <button id="workbenchNewProject" type="button" class="secondary"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg><span data-workbench-i18n="newProject">新建项目</span></button>
+          <button id="workbenchImport" type="button" class="secondary"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 12V3m-3 3 3-3 3 3M4 12v4h12v-4"/></svg><span data-workbench-i18n="import">导入素材</span></button>
+          <div class="saveControls"><span id="saveState" class="saveState" data-i18n="noChanges" role="status">没有改动</span><button id="save" class="save" data-i18n="saveTuning">保存调参</button></div>
+        </div>
+      </header>
+      <aside class="assetNavigator" aria-label="素材与动画">
+        <div class="paneHeading"><span data-workbench-i18n="assets">素材库</span><span class="paneKicker">ASSETS</span></div>
         <section id="updatePanel" class="updatePanel" aria-live="polite" hidden>
           <div class="updateHeading">
             <strong data-i18n="updateAvailable">发现新版本</strong>
@@ -40,6 +41,12 @@
           <button id="refreshProject" class="secondary" data-i18n="refreshAnimationList">刷新动画列表</button>
           <button id="addCodexPet" class="secondary" data-i18n="addCodexPet" hidden>＋ 导入新宠物</button>
         </div>
+        <details id="workbenchOptionalFeatures" class="optionalFeatures" hidden>
+          <summary><span data-workbench-i18n="optionalFeatures">可选功能</span><span class="optionalFeatureHint">＋</span></summary>
+          <button id="workbenchPetsToggle" class="featureSwitch" type="button" role="switch" aria-checked="false" aria-describedby="workbenchPetsDescription" disabled><span>Codex Pets</span><span class="featureSwitchTrack" aria-hidden="true"></span></button>
+          <p id="workbenchPetsDescription" data-workbench-i18n="petsDescription">启用后读取本机 Codex 宠物素材，并在项目列表中显示。</p>
+          <p id="workbenchFeatureStatus" class="optionalFeatureMessage" role="status" hidden></p>
+        </details>
         <label class="field languageField">
           <span data-i18n="language">语言</span>
           <select id="languageSelect">
@@ -47,12 +54,13 @@
             <option value="en" data-i18n="languageEnglish">English</option>
           </select>
         </label>
+        <div class="navigatorSectionTitle" data-workbench-i18n="animationLibrary">动画资源</div>
         <div class="characterGroupGrid">
           <label class="field">
             <span id="profileFieldLabel" data-i18n="character">角色</span>
             <select id="profileSelect"></select>
           </label>
-          <label class="field">
+          <label class="field groupSelectorField" hidden>
             <span class="fieldLabelRow">
               <span id="groupFieldLabel" data-i18n="group">组</span>
               <span id="groupFamilyBadge" class="groupFamilyBadge" hidden></span>
@@ -64,7 +72,15 @@
           <span data-i18n="findGroup">查找组</span>
           <input id="groupSearch" type="search" placeholder="名称、类型、来源" data-i18n-placeholder="groupSearchPlaceholder" autocomplete="off" />
         </label>
-        <details class="panel" data-panel="scene-scale" open>
+        <div class="animationListHeading"><span data-workbench-i18n="animations">动作</span><span id="workbenchAnimationCount">0</span></div>
+        <nav id="workbenchAnimationList" class="animationList" aria-label="动画动作"></nav>
+        <p id="workbenchListEmpty" class="navigationEmpty" data-workbench-i18n="noAnimations">还没有动画，导入一组序列帧开始创作。</p>
+        <div class="navigatorFooter"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4-4 3v8l7 3 7-3V7l-4-3M3 7l7 3 7-3M10 10v8M7 4l3-2 3 2-3 2-3-2Z"/></svg><div><strong data-workbench-i18n="engineNeutral">自由创作，按需导出</strong><span data-workbench-i18n="engineNeutralHint">本地项目 · 可选引擎适配</span></div></div>
+      </aside>
+      <aside class="sidebar inspector" aria-label="属性检查器">
+        <div class="paneHeading"><span data-workbench-i18n="inspector">属性检查器</span><span class="paneKicker">INSPECTOR</span></div>
+        <div class="inspectorScroll">
+        <details class="panel" data-panel="scene-scale">
           <summary><h2 data-i18n="sceneScalePanel">场景</h2></summary>
           <div class="sceneGrid">
             <label class="field">
@@ -78,7 +94,7 @@
           </div>
         </details>
         <details class="panel" data-panel="adjustment-base" open>
-          <summary><h2 data-i18n="adjustmentBase">调整 Base</h2></summary>
+          <summary><h2 data-workbench-i18n="transform">变换</h2></summary>
           <div class="adjustModeRow">
             <label class="toggle compact"><input id="adjustCharacter" type="checkbox" /><span data-i18n="character">角色</span></label>
             <label class="toggle compact"><input id="adjustGroup" type="checkbox" /><span data-i18n="group">组</span></label>
@@ -154,7 +170,7 @@
               <label class="number"><span>白纹保留起点 %</span><input id="attackTrailBodyWhiteThreshold" type="number" min="0" max="100" step="5" value="100" title="第 2 层亮度达到该值后逐渐保留为白色，而不是继续染成拖尾颜色。" /></label>
               <button id="attackTrailPickColor" type="button" class="secondary">从角色吸色</button>
             </div>
-            <details class="trailMaterialSettings" open>
+            <details class="trailMaterialSettings">
               <summary>材质叠层（4 个用途 / 3 种纹理）</summary>
               <div class="trailMaterialLayers">
                 <section class="trailMaterialLayer" data-material-layer="core">
@@ -276,9 +292,8 @@
           </div>
           <label class="toggle"><input id="boxEnabled" type="checkbox" /><span data-i18n="boxEnabled">这一帧启用碰撞框</span></label>
         </details>
-        <button id="save" class="save" data-i18n="saveTuning">保存调参</button>
-        <div id="saveState" class="saveState" data-i18n="noChanges">没有改动</div>
-        <div id="status" class="status" hidden></div>
+        <div id="exportPanelSlot"></div>
+        </div>
       </aside>
 
       <section class="workspace">
@@ -286,10 +301,11 @@
           <div class="toolbarMain">
             <strong id="canvasTitle" data-i18n="canvas">画布</strong>
             <span id="hint" data-i18n="hint">拖动画布可平移。选中附加帧：拖动移动，按住 R 滚轮旋转，按住 Z 滚轮缩放。</span>
-            <div id="selectionHud" class="selectionHud">帧 -</div>
+
           </div>
           <div class="toolbarActions">
             <div class="appearanceControls" aria-label="UI appearance">
+              <div class="languageButtons" aria-label="Language"><button type="button" class="languageButton" data-language="zh" title="中文">中</button><button type="button" class="languageButton" data-language="en" title="English">EN</button></div>
               <div class="themeSwitch" aria-label="Theme">
                 <button type="button" class="themeButton" data-theme="dark" title="黑色 UI">黑</button>
                 <button type="button" class="themeButton" data-theme="light" title="白色 UI">白</button>
@@ -310,15 +326,54 @@
             <button id="resetView" class="secondary" data-i18n="resetView">重置视图</button>
           </div>
         </div>
-        <canvas id="stage" width="1280" height="760"></canvas>
-        <div id="filmstrip" class="filmstrip"></div>
+        <div class="stageViewport">
+          <canvas id="stage" width="1280" height="760" aria-label="动画预览与编辑画布">通过帧列表选择帧，并在属性检查器调整动画。</canvas>
+          <div id="workbenchEmptyState" class="workbenchEmptyState" hidden>
+            <div class="emptyFrameIcon" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none"><rect x="10" y="16" width="36" height="36" rx="7"/><path d="M19 10h29a6 6 0 0 1 6 6v29"/><path d="m26 27 12 7-12 7V27Z"/></svg></div>
+            <span class="emptyEyebrow">YOUR NEXT FRAME STARTS HERE</span>
+            <h2 id="workbenchEmptyTitle" data-workbench-i18n="emptyTitle">让每一帧，恰到好处</h2>
+            <p id="workbenchEmptyDescription" data-workbench-i18n="emptyDescription">导入序列帧或图集，在同一个工作台完成预览、调参与导出。</p>
+            <div class="emptyActions"><button id="workbenchEmptyCreate" type="button" class="accentButton" data-workbench-i18n="createFirstProject">创建第一个项目</button><button id="workbenchEmptyImport" type="button" class="accentButton" data-workbench-i18n="importFirstAnimation">导入第一组动画</button></div>
+            <div class="emptyFormats"><span>PNG SEQUENCE</span><span>SPRITE SHEET + JSON</span></div>
+          </div>
+        </div>
+        <section class="timelinePanel" aria-label="动画时间轴">
+          <div class="timelineHeading"><div><span class="timelineDot"></span><strong data-workbench-i18n="timeline">时间轴</strong><span id="selectionHud" class="selectionHud">帧 -</span></div><span class="timelineHelp" data-workbench-i18n="timelineHint">点击选帧 · Shift 连选 · 拖入音效或图片</span></div>
+          <div id="filmstrip" class="filmstrip" aria-label="动画帧"></div>
+        </section>
       </section>
+      <footer class="statusBar"><span class="statusReady"><i></i><span data-workbench-i18n="localWorkspace">本地工作台</span></span><div id="status" class="status" role="status" aria-live="polite" hidden></div><span class="statusShortcut">Ctrl / ⌘ S <span data-workbench-i18n="save">保存</span></span></footer>
     </main>
+    <dialog id="workbenchProjectDialog" class="workbenchDialog" aria-labelledby="workbenchProjectTitle">
+      <form id="workbenchProjectForm" class="workbenchForm">
+        <div class="dialogHeading"><div><span class="dialogEyebrow">NEW WORKSPACE</span><h2 id="workbenchProjectTitle" data-workbench-i18n="newProject">新建项目</h2></div><button type="button" class="dialogClose" data-close-dialog aria-label="关闭">×</button></div>
+        <p class="dialogDescription" data-workbench-i18n="newProjectHint">素材与调参保存在本机。随时导出到你使用的游戏引擎。</p>
+        <label class="field"><span data-workbench-i18n="projectName">项目名称</span><input id="workbenchProjectName" name="label" type="text" maxlength="80" placeholder="例如：森林冒险" required autocomplete="off" /></label>
+        <p id="workbenchProjectError" class="formError" role="alert" hidden></p>
+        <div class="dialogActions"><button type="button" class="secondary" data-close-dialog data-workbench-i18n="cancel">取消</button><button id="workbenchProjectSubmit" type="submit" class="accentButton" data-workbench-i18n="createProject">创建项目</button></div>
+      </form>
+    </dialog>
+    <dialog id="workbenchImportDialog" class="workbenchDialog importDialog" aria-labelledby="workbenchImportTitle">
+      <form id="workbenchImportForm" class="workbenchForm">
+        <div class="dialogHeading"><div><span class="dialogEyebrow">IMPORT ANIMATION</span><h2 id="workbenchImportTitle" data-workbench-i18n="import">导入素材</h2></div><button type="button" class="dialogClose" data-close-dialog aria-label="关闭">×</button></div>
+        <p class="dialogDescription"><span data-workbench-i18n="importTo">导入到</span> <strong id="workbenchImportProject"></strong></p>
+        <fieldset class="importModeChoices"><legend class="visuallyHidden" data-workbench-i18n="importFormat">素材格式</legend><label><input type="radio" name="importMode" value="frames" checked /><span><strong data-workbench-i18n="pngSequence">PNG 序列</strong><small data-workbench-i18n="pngSequenceHint">多张图片，按文件名排序</small></span></label><label><input type="radio" name="importMode" value="sheet" /><span><strong data-workbench-i18n="spriteSheet">PNG + JSON 图集</strong><small data-workbench-i18n="spriteSheetHint">一张图集与帧描述文件</small></span></label></fieldset>
+        <label id="workbenchFileDrop" class="importFileDrop" for="workbenchImageFiles"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m-4 4 4-4 4 4M5 15v5h14v-5"/></svg><strong data-workbench-i18n="chooseFiles">点击选择或拖入 PNG 图片</strong><span id="workbenchFileSummary" data-workbench-i18n="noFiles">尚未选择文件</span><input id="workbenchImageFiles" type="file" accept="image/png,.png" multiple /></label>
+        <label id="workbenchSheetJsonField" class="field" hidden><span data-workbench-i18n="sheetJson">图集 JSON</span><input id="workbenchSheetJson" type="file" accept="application/json,.json" /></label>
+        <div class="importFields"><label class="field"><span data-workbench-i18n="profileId">角色 / 素材集</span><input id="workbenchProfileId" type="text" value="hero" maxlength="80" required autocomplete="off" /></label><label class="field"><span data-workbench-i18n="animationId">动作名称</span><input id="workbenchAnimationId" type="text" value="idle" maxlength="80" required autocomplete="off" /></label><label class="field"><span data-workbench-i18n="fps">播放帧率</span><span class="inputSuffix"><input id="workbenchImportFps" type="number" value="12" min="1" max="240" step="0.1" required /><span>FPS</span></span></label></div>
+        <p class="importHelp" data-workbench-i18n="importHint">图集中的独立帧时长会保留。已有同名动作时会提示，不会直接覆盖。</p>
+        <p id="workbenchImportError" class="formError" role="alert" hidden></p>
+        <div class="dialogActions"><span id="workbenchImportProgress" class="importProgress" role="status"></span><button type="button" class="secondary" data-close-dialog data-workbench-i18n="cancel">取消</button><button id="workbenchImportSubmit" type="submit" class="accentButton" data-workbench-i18n="startImport">开始导入</button></div>
+      </form>
+    </dialog>
     <script src="/binding_scope.js?v=20260729-0217"></script>
     <script src="/transform_selection.js?v=20260729-0217"></script>
     <script src="/animation_families.js?v=20260731-1"></script>
     <script src="/timing_modes.js?v=20260729-0217"></script>
     <script src="/attack_trails.js?v=20260801-attachment-lock"></script>
-    <script src="/app.js?v=20260801-attachment-lock"></script>
+    <script src="/workbench_state.js?v=20261006"></script>
+    <script src="/app.js?v=20261006-workbench"></script>
+    <script src="/workbench_ui.js?v=20261006"></script>
+    <script src="/portable_export.js?v=20261006"></script>
   </body>
 </html>

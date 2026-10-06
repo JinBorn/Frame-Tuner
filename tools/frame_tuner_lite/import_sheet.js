@@ -1,9 +1,11 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { sheetOrigin } = require("../workbench_service");
 const {
   ROOT,
   animationDestination,
+  assertImportTarget,
   assetVersion,
   copyStable,
   naturalCompare,
@@ -23,6 +25,9 @@ function frameEntries(raw) {
 }
 
 function cropFromEntry(value) {
+  if (value?.rotated === true || value?.trimmed === true || value?.pivot || value?.anchor || value?.sourceSize || value?.spriteSourceSize) {
+    throw new Error("Unsupported sheet packing metadata: normalize rotated, trimmed, pivot, sourceSize and spriteSourceSize before importing.");
+  }
   const frame = value?.frame || value?.crop || value;
   const x = Number(frame?.x ?? frame?.left ?? 0);
   const y = Number(frame?.y ?? frame?.top ?? 0);
@@ -93,6 +98,7 @@ function importSheetAudio({ project, profileId, animationId, animationType, outp
       type: asset.type,
       size: asset.size,
       path: asset.path,
+      volume: Number.isFinite(Number(event.volume)) ? Math.max(0, Math.min(1, Number(event.volume))) : 1,
     });
   }
   liteStore.writeJson(target.frameAudio, [...retained, ...importedBindings.values()]);
@@ -110,7 +116,16 @@ function run(argv = process.argv.slice(2)) {
   if (!fs.existsSync(jsonPath)) throw new Error(`Sheet JSON not found: ${jsonPath}`);
   const source = JSON.parse(fs.readFileSync(jsonPath, "utf8").replace(/^\uFEFF/, ""));
   const entries = frameEntries(source);
+  const sourceAnchor = sheetOrigin(source);
+  const sourceSize = pngSize(sheet);
+  for (const [, value] of entries) {
+    const crop = cropFromEntry(value);
+    if (![crop.x, crop.y, crop.width, crop.height].every(Number.isInteger) || crop.x < 0 || crop.y < 0 || crop.x + crop.width > sourceSize.width || crop.y + crop.height > sourceSize.height) throw new Error("Sheet frame is outside its PNG.");
+  }
+  if (!entries.length) throw new Error("Sheet contains no frames.");
+  if (!Number.isFinite(Number(args.fps ?? source.meta?.frameRate ?? 12)) || Number(args.fps ?? source.meta?.frameRate ?? 12) <= 0) throw new Error("FPS must be a positive number.");
   const project = store.ensureProject(projectId, String(args.label || projectId));
+  assertImportTarget(project, profileId, animationId, args.replace === true);
   const destination = animationDestination(project, profileId, animationId);
   const stableSheet = copyStable(sheet, path.join(destination, "sheet.png"));
   const sheetSize = pngSize(stableSheet);
@@ -138,6 +153,7 @@ function run(argv = process.argv.slice(2)) {
     name: animationId,
     type: previewOwner ? "vfx" : "actor",
     anchorMode: "canvas_bottom_center",
+    ...(sourceAnchor ? { sourceAnchor } : {}),
     fps: baseFps,
     source: outputPath,
     previewOwner: previewOwner || undefined,
