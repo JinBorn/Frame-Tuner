@@ -182,6 +182,10 @@ button.save:hover { background: var(--accent-dark); }
 #canvasTransformTool { display: flex; flex-wrap: wrap; gap: 4px; }
 #canvasTransformTool button { min-height: 28px; padding: 4px 10px; font-size: 12px; background: var(--surface-2); color: var(--muted); }
 #canvasTransformTool button[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--surface-2)); }
+#previewSampling { display: flex; gap: 4px; }
+#previewSampling button { min-height: 28px; padding: 4px 10px; font-size: 12px; background: var(--surface-2); color: var(--muted); }
+#previewSampling button[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--surface-2)); }
+#stage[data-sampling="pixel"] { image-rendering: pixelated; }
 #hint { font-size: 10px; line-height: 1.5; max-width: 420px; color: var(--muted); }
 .toolbarActions { gap: 7px; justify-content: flex-start; }
 .appearanceControls { gap: 7px; }
@@ -229,6 +233,10 @@ button.save:hover { background: var(--accent-dark); }
 .thumbLabel { font: 10px var(--data-font); font-weight: 400; padding: 4px 7px; color: var(--muted); }
 .thumbDuration { gap: 2px; grid-template-columns: 20px minmax(25px, 1fr) 20px 20px; padding: 2px 4px 4px; }
 .thumbDuration b { font: 9px var(--data-font); color: var(--muted); }
+.thumb:has(.frameDeleteButton) { height: 150px; grid-template-rows: 1fr 27px 24px; }
+.frameDeleteButton { min-height: 22px; height: 22px; padding: 0 6px; margin: 0 4px 3px; border: 0; box-shadow: none; background: transparent; color: var(--muted); font-size: 10px; }
+.frameDeleteButton:hover:not(:disabled) { color: #ff8989; background: rgba(255, 100, 100, .1); }
+.frameDeleteButton:disabled { opacity: .35; cursor: default; }
 .durationStep, .frameCopyButton { height: 20px; min-height: 20px; width: 20px; border: 0; box-shadow: none; padding: 0; font-size: 11px; border-radius: 3px; background: transparent; color: var(--muted); }
 .frameSfxBadge { width: 21px; height: 21px; min-height: 21px; border: 1px solid var(--line); box-shadow: none; background: var(--panel-2); color: var(--accent); }
 .attachmentThumb { min-width: 108px; width: 108px; height: 76px; grid-template-rows: 1fr 23px; background: var(--surface); box-shadow: none; }

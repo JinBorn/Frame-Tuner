@@ -317,4 +317,4 @@ function createWorkbenchService(options = {}) {
   return { root, store, capabilities: getCapabilities, createProject, importAnimation, resolveProject, projectData, listProjects: () => store.readRegistry().projects.map(store.projectForClient) };
 }
 
-module.exports = { createWorkbenchService, pngBuffer, sheetFrames, sheetOrigin, prepareSheetAudio, resolveWorkbenchAsset };
+module.exports = { createWorkbenchService, pngBuffer, sheetFrames, sheetOrigin, prepareSheetAudio, resolveWorkbenchAsset, commitImportFiles };

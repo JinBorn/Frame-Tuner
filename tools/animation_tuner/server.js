@@ -1470,7 +1470,7 @@ const server = http.createServer(async (req, res) => {
       ensureDataFiles();
       return send(res, 200, { ok: true, capabilities: capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true, manageProjects: true }), ...projectsResponse() });
     }
-    const neutralRoutes = new Set(["/api/save", "/api/lite/settings", "/api/duplicate-frame", "/api/frame-audio", "/api/attack-trail-texture", "/api/frame-attachment-image", "/api/replace-frame", "/api/replace-animation"]);
+    const neutralRoutes = new Set(["/api/save", "/api/lite/settings", "/api/duplicate-frame", "/api/delete-frame", "/api/frame-audio", "/api/attack-trail-texture", "/api/frame-attachment-image", "/api/replace-frame", "/api/replace-animation"]);
     if (req.method === "POST" && neutralRoutes.has(parsed.pathname)) {
       const payload = JSON.parse(req.workbenchBody);
       const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));

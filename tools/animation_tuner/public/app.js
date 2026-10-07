@@ -473,6 +473,7 @@ let frameImageAttachmentClipboard = [];
 let frameImageAttachmentClipboardProjectId = "";
 let ghost = true;
 let referenceFrameHiddenByKey = false;
+let previewSampling = localStorage.getItem("frameTuner.previewSampling") === "pixel" ? "pixel" : "smooth";
 let playing = false;
 let lastPlay = 0;
 let lastAttackTrailPlaybackSampleToken = "";
@@ -505,6 +506,7 @@ let activeImageResources = [];
 let imageAssetVersion = String(Date.now());
 let preloadGeneration = 0;
 let projectOperationInFlight = false;
+let frameSequenceOperationInFlight = false;
 let configLoadGeneration = 0;
 let selectionLoading = false;
 let opaqueRectCache = new WeakMap();
@@ -1748,6 +1750,7 @@ function resetProjectSession() {
   attachedLayerImageSets.clear();
   referenceFrame = null;
   undoStack = [];
+  referenceFrameHiddenByKey = false;
   redoStack = [];
   coalescedUndo = null;
   imageCache.clear();
@@ -3868,6 +3871,7 @@ function isReferenceFrame(index = selectedFrame, group = currentGroup) {
 
 function setReferenceFrameEnabled(enabled) {
   if (!currentGroup) return;
+  referenceFrameHiddenByKey = false;
   if (enabled) {
     referenceFrame = {
       group: currentGroup,
@@ -4468,48 +4472,69 @@ function createFrameImageAttachmentCard(attachment, index, group, label) {
 }
 
 async function duplicateFrameAfter(index, group) {
+  return changeFrameSequence(index, group, false);
+}
+
+async function changeFrameSequence(index, group, remove) {
   if (!group || config?.projectKind === "codex_pets" || !group.profileId) return;
-  if (dirty) await save();
-  const runtimeAnimation = String(group.runtimeAnimation || group.name || "");
-  const animationId = runtimeAnimation.includes("/")
-    ? runtimeAnimation.slice(runtimeAnimation.lastIndexOf("/") + 1)
-    : runtimeAnimation;
-  const groupIdentity = {
-    profileId: group.profileId,
-    runtimeAnimation,
-    name: group.name,
-  };
-  const res = await fetch("/api/duplicate-frame", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      projectId: activeProjectId(),
-      configRevision: config?.configRevision || "",
+  if (selectionLoading || projectOperationInFlight || saveInFlight || frameAudioOperationPending() || portableExportBusy()) return;
+  if (remove) {
+    if (config?.projectKind !== "frame_lite" || group.frames.length <= 1) return;
+    const message = language === "en"
+      ? `Delete frame ${index + 1} and its timing, transforms, audio bindings and attachments? Source files are kept. This saves immediately and cannot be undone.`
+      : `删除第 ${index + 1} 帧及其时长、变换、音效绑定和挂件等帧数据？原始素材文件会保留。此操作立即保存，不能撤销。`;
+    if (!window.confirm(message)) return;
+  }
+  if (dirty && (!await save() || dirty)) return;
+  projectOperationInFlight = true;
+  frameSequenceOperationInFlight = true;
+  try {
+    const runtimeAnimation = String(group.runtimeAnimation || group.name || "");
+    const animationId = runtimeAnimation.includes("/")
+      ? runtimeAnimation.slice(runtimeAnimation.lastIndexOf("/") + 1)
+      : runtimeAnimation;
+    const groupIdentity = {
       profileId: group.profileId,
-      animationId,
-      frameIndex: index,
-    }),
-  });
-  if (!res.ok) {
-    const errorPayload = await res.json().catch(() => ({}));
-    if (res.status === 409 && errorPayload.code === "stale_config") {
-      throw new Error(t("staleSaveBlocked"));
-    }
-    throw new Error(errorPayload.error || res.statusText);
-  }
-  const result = await res.json().catch(() => ({}));
-  await loadConfig();
-  const copiedGroup = config.groups.find((entry) => (
-    entry.profileId === groupIdentity.profileId
-    && String(entry.runtimeAnimation || entry.name || "") === groupIdentity.runtimeAnimation
-  )) || config.groups.find((entry) => entry.profileId === groupIdentity.profileId && entry.name === groupIdentity.name);
-  if (copiedGroup) {
-    await selectGroup(copiedGroup, {
-      frameIndex: Number(result.frameIndex ?? index + 1),
-      preserveView: true,
+      runtimeAnimation,
+      name: group.name,
+    };
+    const res = await fetch(remove ? "/api/delete-frame" : "/api/duplicate-frame", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: activeProjectId(),
+        configRevision: config?.configRevision || "",
+        profileId: group.profileId,
+        animationId,
+        frameIndex: index,
+      }),
     });
+    if (!res.ok) {
+      const errorPayload = await res.json().catch(() => ({}));
+      if (res.status === 409 && errorPayload.code === "stale_config") {
+        throw new Error(t("staleSaveBlocked"));
+      }
+      throw new Error(errorPayload.error || res.statusText);
+    }
+    const result = await res.json().catch(() => ({}));
+    await loadConfig({ resetSession: true });
+    const copiedGroup = config.groups.find((entry) => (
+      entry.profileId === groupIdentity.profileId
+      && String(entry.runtimeAnimation || entry.name || "") === groupIdentity.runtimeAnimation
+    )) || config.groups.find((entry) => entry.profileId === groupIdentity.profileId && entry.name === groupIdentity.name);
+    if (copiedGroup) {
+      await selectGroup(copiedGroup, {
+        frameIndex: Number(result.frameIndex ?? index + 1),
+        preserveView: true,
+      });
+    }
+    status(remove
+      ? (language === "en" ? `Frame ${index + 1} deleted; source files kept.` : `已删除第 ${index + 1} 帧，原始素材文件已保留。`)
+      : `已复制第 ${index + 1} 帧，并插入到右侧。`);
+  } finally {
+    projectOperationInFlight = false;
+    frameSequenceOperationInFlight = false;
   }
-  status(`已复制第 ${index + 1} 帧，并插入到右侧。`);
 }
 
 function renderFilmstripGroup(group, label) {
@@ -4532,6 +4557,8 @@ function renderFilmstripGroup(group, label) {
     item.title = `${label}${index + 1} - ${frame.name}${sourceLabel}`;
     const canAdjustDuration = isCurrent && canEditFramePlayback(group) && !usesAttachedPlaybackTiming(group);
     const canDuplicate = isCurrent && config?.projectKind !== "codex_pets" && Boolean(group.profileId);
+    const showDelete = isCurrent && config?.projectKind === "frame_lite" && Boolean(group.profileId);
+    const deleteLabel = language === "en" ? "Delete frame (keep source files)" : "删除本帧（保留素材文件）";
     const audioBadge = audioBinding
       ? `<button type="button" class="frameSfxBadge" data-action="delete-sfx" aria-label="${escapeHtml(`${t("frame")} ${index + 1}: ${language === "en" ? "Remove audio" : "删除音效"} ${audioBinding.name || "audio"}`)}" title="${escapeHtml(audioBinding.name || "audio")}"><span class="frameSfxSpeaker" aria-hidden="true">&#128266;</span><span class="frameSfxRemove" aria-hidden="true">x</span></button>`
       : "";
@@ -4546,7 +4573,8 @@ function renderFilmstripGroup(group, label) {
         <b>${frameDurationMsLabel(index, group)}</b>
         <button type="button" class="durationStep" data-delta="${FRAME_DURATION_STEP_MS}" ${canAdjustDuration ? "" : "disabled"} aria-label="${t("frame")} ${index + 1}: +${FRAME_DURATION_STEP_MS}ms" title="+${FRAME_DURATION_STEP_MS}ms">+</button>
         <button type="button" class="frameCopyButton ${canDuplicate ? "" : "disabled"}" data-action="duplicate-frame" ${canDuplicate ? "" : "disabled"} aria-label="${t("frame")} ${index + 1}: ${language === "en" ? "Duplicate frame" : "复制本帧并插入右侧"}" title="复制本帧并插入右侧">⧉</button>
-      </div>`;
+      </div>
+      ${showDelete ? `<button type="button" class="frameDeleteButton" data-action="delete-frame" ${group.frames.length > 1 ? "" : "disabled"} aria-label="${t("frame")} ${index + 1}: ${deleteLabel}" title="${group.frames.length > 1 ? deleteLabel : (language === "en" ? "Keep at least one frame" : "至少保留一帧")}">${language === "en" ? "Delete frame" : "删除帧"}</button>` : ""}`;
     const sfxBadge = item.querySelector(".frameSfxBadge");
     if (sfxBadge) {
       const removeSfx = async (event) => {
@@ -4619,6 +4647,12 @@ function renderFilmstripGroup(group, label) {
       });
     });
     const copyButton = item.querySelector('[data-action="duplicate-frame"]');
+    item.querySelector('[data-action="delete-frame"]')?.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      try { await changeFrameSequence(index, group, true); }
+      catch (error) { status(`${language === "en" ? "Delete failed" : "删除帧失败"}：${error.message}`); }
+    });
     if (copyButton && canDuplicate) {
       const duplicate = async (event) => {
         event.preventDefault();
@@ -5140,7 +5174,7 @@ function drawFrame(index, alpha, selected, group = currentGroup, groupImages = i
   if (!rect) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingEnabled = Number.isFinite(liteExportTime) || previewSampling === "smooth";
   ctx.translate(rect.originX, rect.originY);
   ctx.rotate((Number(t.rotation || 0) * facing * Math.PI) / 180);
   if (flipH) ctx.scale(-1, 1);
@@ -5464,7 +5498,7 @@ function drawFrameImageAttachment(attachment, index, alpha, group = currentGroup
   if (!rect) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingEnabled = Number.isFinite(liteExportTime) || previewSampling === "smooth";
   ctx.translate(rect.originX, rect.originY);
   ctx.rotate(rect.rotation);
   if (rect.flipH) ctx.scale(-1, 1);
@@ -7138,6 +7172,33 @@ function isNumberInputTarget(event) {
   return target instanceof HTMLInputElement && target.type === "number";
 }
 
+function isReferenceHideKey(event) {
+  return event.code === "KeyH" || String(event.key || "").toLowerCase() === "h";
+}
+
+function canHideReferenceFromTarget(event) {
+  if (!isTypingTarget(event)) return true;
+  return event.target instanceof HTMLInputElement
+    && ["number", "checkbox", "radio", "range", "color", "button", "submit", "reset"].includes(event.target.type);
+}
+
+function syncPreviewSampling() {
+  document.querySelectorAll("[data-preview-sampling]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.previewSampling === previewSampling));
+  });
+  els.stage.dataset.sampling = previewSampling;
+}
+
+document.querySelectorAll("[data-preview-sampling]").forEach((button) => {
+  button.addEventListener("click", () => {
+    previewSampling = button.dataset.previewSampling === "pixel" ? "pixel" : "smooth";
+    localStorage.setItem("frameTuner.previewSampling", previewSampling);
+    syncPreviewSampling();
+    draw();
+  });
+});
+syncPreviewSampling();
+
 function trackAttachmentTransformKey(event, pressed) {
   if (frameAttachmentEditingLocked()) return false;
   const key = String(event.key || "").toLowerCase();
@@ -7747,8 +7808,8 @@ window.addEventListener("keydown", (event) => {
   const typing = isTypingTarget(event);
   const trackingAttachmentKey = (!typing || isNumberInputTarget(event)) && trackAttachmentTransformKey(event, true);
   if (trackingAttachmentKey && isNumberInputTarget(event)) event.preventDefault();
-  if (referenceFrame && !command && !event.altKey && !event.isComposing && event.key.toLowerCase() === "h") {
-    if (!typing || isNumberInputTarget(event)) {
+  if (referenceFrame && !command && !event.altKey && !event.isComposing && isReferenceHideKey(event)) {
+    if (canHideReferenceFromTarget(event)) {
       event.preventDefault();
       event.stopPropagation();
       if (!referenceFrameHiddenByKey) {
@@ -7767,7 +7828,7 @@ window.addEventListener("keydown", (event) => {
 
 window.addEventListener("keyup", (event) => {
   trackAttachmentTransformKey(event, false);
-  if (event.key.toLowerCase() !== "h") return;
+  if (!isReferenceHideKey(event)) return;
   if (!referenceFrameHiddenByKey) return;
   referenceFrameHiddenByKey = false;
   draw();
@@ -7796,7 +7857,7 @@ function portableExportBusy() {
 // uses the explicit exportOperation option instead of synthetic DOM events.
 for (const eventName of ["click", "beforeinput", "input", "change", "pointerdown", "keydown", "drop", "wheel"]) {
   window.addEventListener(eventName, (event) => {
-    if (!portableExportBusy()) return;
+    if (!portableExportBusy() && !frameSequenceOperationInFlight) return;
     if (event.cancelable) event.preventDefault();
     event.stopImmediatePropagation();
   }, { capture: true, passive: false });

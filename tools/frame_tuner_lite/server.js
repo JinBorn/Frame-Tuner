@@ -17,7 +17,7 @@ const {
 } = require("../attack_trail_presets");
 const { EMPTY_MANIFEST, EMPTY_SETTINGS, EMPTY_TUNING, createLiteStore, reslash, slug } = require("./store");
 const { withUtf8Charset } = require("../http_content_type");
-const { createWorkbenchService, resolveWorkbenchAsset } = require("../workbench_service");
+const { createWorkbenchService, resolveWorkbenchAsset, commitImportFiles } = require("../workbench_service");
 const { adapterForProject } = require("../engine_adapters");
 
 function createLiteApp(options = {}) {
@@ -397,6 +397,88 @@ function duplicateProjectFrame(project, payload) {
   return { frameIndex: frameIndex + 1, frameCount: frames.length, warnings: validateLiteProject(project) };
 }
 
+function deleteFrameOverrideDictionary(source, framePrefix, frameIndex) {
+  const result = {};
+  for (const [key, value] of Object.entries(source || {})) {
+    const suffix = key.startsWith(framePrefix) ? key.slice(framePrefix.length) : "";
+    if (!/^\d+$/.test(suffix)) { result[key] = value; continue; }
+    const index = Number(suffix);
+    if (index !== frameIndex) result[`${framePrefix}${index > frameIndex ? index - 1 : index}`] = value;
+  }
+  return result;
+}
+
+function deleteFrameBindings(entries, projectId, profileId, animationId, frameIndex) {
+  const animationMatches = (name) => name === animationId || name === `${profileId}/${animationId}`;
+  const projectMatches = (id) => !id || id === "legacy" || id === projectId;
+  const result = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const raw = { ...entry, ...(entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {}) };
+    let index = null;
+    if (projectMatches(raw.projectId) && (!raw.profileId || raw.profileId === profileId) && (!raw.animation || animationMatches(raw.animation))) {
+      const rawFrame = raw.frame ?? raw.frameIndex;
+      if (raw.profileId === profileId && animationMatches(raw.animation) && rawFrame !== undefined && rawFrame !== null && Number.isInteger(Number(rawFrame)) && Number(rawFrame) >= 0) index = Number(rawFrame);
+      if (index === null) for (const key of [entry?.key, entry?.frameKey]) {
+        const text = String(key || ""), prefix = `${profileId}/${animationId}:`;
+        if (text.startsWith(prefix) && /^\d+$/.test(text.slice(prefix.length))) { index = Number(text.slice(prefix.length)); break; }
+        const parts = text.split(":");
+        if (!/^\d+$/.test(parts.at(-1) || "")) continue;
+        if ((parts.length >= 7 && projectMatches(parts[0]) && parts[2] === profileId && animationMatches(parts[4]))
+          || (parts.length === 6 && parts[1] === profileId && animationMatches(parts[3]))) { index = Number(parts.at(-1)); break; }
+      }
+    }
+    if (index === frameIndex) continue;
+    if (index !== null && index > frameIndex) {
+      const shifted = bindingAtFrame(entry, index - 1);
+      if (Object.hasOwn(shifted, "frameIndex")) shifted.frameIndex = index - 1;
+      if (shifted.metadata && Object.hasOwn(shifted.metadata, "frameIndex")) shifted.metadata.frameIndex = index - 1;
+      result.push(shifted);
+    } else result.push(entry);
+  }
+  return result;
+}
+
+function deleteTrailFrameSlices(trails, bindingKey, frameIndex) {
+  const next = structuredClone(trails);
+  for (const segment of Array.isArray(next.bindings?.[bindingKey]) ? next.bindings[bindingKey] : []) {
+    if (Array.isArray(segment.sticks)) segment.sticks = segment.sticks.filter((stick) => Number(stick.frame) !== frameIndex).map((stick) => Number(stick.frame) > frameIndex ? { ...stick, frame: Number(stick.frame) - 1 } : stick);
+    if (segment.frameSlices && typeof segment.frameSlices === "object" && !Array.isArray(segment.frameSlices)) segment.frameSlices = deleteFrameOverrideDictionary(segment.frameSlices, "", frameIndex);
+  }
+  return next;
+}
+
+function deleteProjectFrame(project, payload) {
+  const profileId = String(payload.profileId || ""), animationId = String(payload.animationId || "");
+  const frameIndex = Number(payload.frameIndex);
+  const target = store.paths(project);
+  const manifest = store.readJson(target.manifest, EMPTY_MANIFEST);
+  const profile = manifest.profiles?.find((entry) => String(entry.id) === profileId);
+  const animation = profile?.animations?.find((entry) => String(entry.id || entry.name) === animationId);
+  const frames = animation?.frames;
+  if (!["number", "string"].includes(typeof payload.frameIndex) || String(payload.frameIndex).trim() === "" || !Number.isInteger(frameIndex) || frameIndex < 0 || !Array.isArray(frames) || frameIndex >= frames.length) {
+    throw Object.assign(new Error(`Frame not found: ${profileId}/${animationId}:${payload.frameIndex}`), { status: 400, code: "invalid_frame" });
+  }
+  if (frames.length <= 1) throw Object.assign(new Error("An animation must retain at least one frame."), { status: 400, code: "last_frame" });
+  frames.splice(frameIndex, 1);
+  const tuning = store.readJson(target.tuning, EMPTY_TUNING);
+  for (const field of ["frame_visual_overrides", "frame_playback_overrides", "frame_box_overrides", "attack_vfx_frame_overrides", "attack_vfx_playback_overrides"]) {
+    if (tuning[field] !== undefined) tuning[field] = deleteFrameOverrideDictionary(tuning[field], `${profileId}/${animationId}:`, frameIndex);
+  }
+  const audio = deleteFrameBindings(audioBindingsArray(store.readJson(target.frameAudio, [])), project.id, profileId, animationId, frameIndex);
+  const attachments = deleteFrameBindings(store.readJson(target.frameImageAttachments, []), project.id, profileId, animationId, frameIndex);
+  const trails = deleteTrailFrameSlices(store.readJson(target.attackTrails, EMPTY_ATTACK_TRAILS), `${profileId}/${animationId}`, frameIndex);
+  const settings = store.readJson(target.settings, EMPTY_SETTINGS);
+  // Validate without projectData(), which also migrates shared preset state.
+  const warnings = validateLiteProject(project, { target, manifest, audio, settings, attackTrails: normalizeAttackTrails(trails) });
+  // Reuse import's staged writes and rollback so a reported disk failure does
+  // not leave frame indices out of sync across the five authored files.
+  commitImportFiles([
+    [target.manifest, manifest], [target.tuning, tuning], [target.frameAudio, audio],
+    [target.frameImageAttachments, attachments], [target.attackTrails, trails],
+  ].map(([file, value]) => [file, `${JSON.stringify(value, null, 2)}\n`]));
+  return { frameIndex: Math.min(frameIndex, frames.length - 1), frameCount: frames.length, warnings };
+}
+
 function validateLiteProject(project, data = projectData(project)) {
   const warnings = [];
   const ids = new Set();
@@ -557,6 +639,18 @@ const requestHandler = async (req, res) => {
       return send(res, 200, { ok: true, activeProjectId: registry.activeProjectId, projects: registry.projects.map(store.projectForClient) });
     }
     if (req.method === "GET" && url.pathname === "/api/config") return send(res, 200, configResponse(url.searchParams.get("project")));
+    if (req.method === "POST" && url.pathname === "/api/delete-frame") {
+      const payload = JSON.parse(await readBody(req));
+      const project = payload.projectId ? store.resolveProject(payload.projectId) : null;
+      if (!project) return send(res, 404, { error: "Lite project not found." });
+      const currentRevision = projectConfigRevision(project);
+      if (String(payload.configRevision || "") !== currentRevision) return send(res, 409, {
+        error: "服务器数据已被其他页面或工具更新，本次旧页面删除已阻止。请刷新页面后再操作。",
+        code: "stale_config", configRevision: currentRevision,
+      });
+      const deleted = deleteProjectFrame(project, payload);
+      return send(res, 200, { ok: true, ...deleted, configRevision: projectConfigRevision(project) });
+    }
     if (req.method === "POST" && url.pathname === "/api/duplicate-frame") {
       const payload = JSON.parse(await readBody(req));
       const project = store.resolveProject(payload.projectId);
@@ -689,6 +783,11 @@ return {
   buildGroups,
   configResponse,
   duplicateFrameBindings,
+  deleteFrameBindings,
+  deleteFrameOverrideDictionary,
+  deleteTrailFrameSlices,
+  deleteProjectFrame,
+  projectConfigRevision,
   duplicateTrailFrameSlices,
   remapFrameOverrideDictionary,
   saveFrameAudioBindings,
