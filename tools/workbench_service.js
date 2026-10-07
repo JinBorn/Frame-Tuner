@@ -217,7 +217,7 @@ function createWorkbenchService(options = {}) {
     if (!result.manifest || !Array.isArray(result.manifest.profiles) || !result.tuning || Array.isArray(result.tuning) || typeof result.tuning !== "object" || !Array.isArray(result.frameImageAttachments) || !result.attackTrails || typeof result.attackTrails !== "object" || !result.settings || typeof result.settings !== "object") fail("Project data has an invalid structure; existing files were preserved.", "invalid_project_json", 500);
     return result;
   };
-  const getCapabilities = () => capabilities({ codexPets: typeof options.codexPets === "function" ? options.codexPets() : options.codexPets === true, codexPetsToggle: options.codexPetsToggle === true });
+  const getCapabilities = () => capabilities({ manageProjects: typeof store.renameProject === "function", codexPets: typeof options.codexPets === "function" ? options.codexPets() : options.codexPets === true, codexPetsToggle: options.codexPetsToggle === true });
   function createProject(payload = {}) {
     const label = String(payload.label || payload.id || "").trim();
     if (!label) fail("A project name is required.", "invalid_project");

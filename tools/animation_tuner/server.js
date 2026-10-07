@@ -1444,8 +1444,17 @@ const server = http.createServer(async (req, res) => {
   try {
     const parsed = new URL(req.url, "http://127.0.0.1");
     if (req.method === "POST") req.workbenchBody = await readBody(req);
-    if (req.method === "GET" && parsed.pathname === "/api/workbench/capabilities") return send(res, 200, capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true }));
+    if (req.method === "GET" && parsed.pathname === "/api/workbench/capabilities") return send(res, 200, capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true, manageProjects: true }));
     if (req.method === "POST" && parsed.pathname === "/api/workbench/projects") return send(res, 201, workbench.createProject(JSON.parse(req.workbenchBody)));
+    if (req.method === "POST" && ["/api/workbench/projects/rename", "/api/workbench/projects/remove"].includes(parsed.pathname)) {
+      const payload = JSON.parse(req.workbenchBody);
+      if (!availableRegistry().projects.some((entry) => entry.id === payload.projectId)) return send(res, 404, { error: "Project not found." });
+      try {
+        if (parsed.pathname.endsWith("/rename")) projectStore.renameProject(payload.projectId, payload.label);
+        else projectStore.removeProject(payload.projectId);
+      } catch (error) { return send(res, 400, { error: error.message }); }
+      return send(res, 200, { ok: true, ...projectsResponse() });
+    }
     if (req.method === "POST" && parsed.pathname === "/api/workbench/import") return send(res, 200, workbench.importAnimation(JSON.parse(req.workbenchBody)));
     if (req.method === "POST" && parsed.pathname === "/api/workbench/export") {
       const payload = JSON.parse(req.workbenchBody);
@@ -1459,7 +1468,7 @@ const server = http.createServer(async (req, res) => {
       codexPetsEnabled = payload.enabled;
       projectStore.writeJson(featureSettingsPath, { codexPets: codexPetsEnabled });
       ensureDataFiles();
-      return send(res, 200, { ok: true, capabilities: capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true }), ...projectsResponse() });
+      return send(res, 200, { ok: true, capabilities: capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true, manageProjects: true }), ...projectsResponse() });
     }
     const neutralRoutes = new Set(["/api/save", "/api/lite/settings", "/api/duplicate-frame", "/api/frame-audio", "/api/attack-trail-texture", "/api/frame-attachment-image", "/api/replace-frame", "/api/replace-animation"]);
     if (req.method === "POST" && neutralRoutes.has(parsed.pathname)) {

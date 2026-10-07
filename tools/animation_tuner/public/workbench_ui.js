@@ -7,10 +7,12 @@
   const profileSelect = byId("profileSelect");
   const projectDialog = byId("workbenchProjectDialog");
   const importDialog = byId("workbenchImportDialog");
+  const manageDialog = byId("workbenchManageDialog");
   const replaceDialog = byId("workbenchReplaceDialog");
   const state = { files: [], busy: false, featureBusy: false, ready: false, projectKind: "", capabilities: null, queued: false };
   const translations = {
     zh: {
+      manageProject: "管理项目", renameProject: "保存名称", removeProject: "从列表移除", removeProjectHint: "移除只影响项目列表，本地素材和调参文件仍保留。重新新建同名项目不会恢复这些数据。", removeConfirm: "从列表移除项目「{name}」？本地素材和调参文件将保留。", renamed: "项目名称已更新。", removed: "项目已从列表移除，本地文件已保留。",
       newProject: "新建项目", import: "导入素材", assets: "素材库", animationLibrary: "动画资源", animations: "动作",
       noAnimations: "还没有动画，导入一组序列帧开始创作。", noMatches: "没有匹配的动作，试试其他关键词。",
       engineNeutral: "自由创作，按需导出", engineNeutralHint: "本地项目 · 可选引擎适配", inspector: "属性检查器", transform: "变换",
@@ -38,6 +40,7 @@
       petsEnabled: "已启用 Codex Pets，可在项目列表中选择宠物。", petsDisabled: "已关闭 Codex Pets，宠物项目已从列表隐藏。", petsUpdating: "正在更新宠物功能…",
     },
     en: {
+      manageProject: "Manage project", renameProject: "Save name", removeProject: "Remove from list", removeProjectHint: "Removal only affects the project list. Local assets and settings are kept. Creating a new project with the same name will not restore them.", removeConfirm: "Remove project {name} from the list? Local assets and settings will be kept.", renamed: "Project renamed.", removed: "Project removed from the list. Local files were kept.",
       newProject: "New project", import: "Import assets", assets: "Assets", animationLibrary: "Animation library", animations: "Animations",
       noAnimations: "Import a sequence to start your first animation.", noMatches: "No matching animations. Try another search.",
       engineNeutral: "Create freely. Export anywhere.", engineNeutralHint: "Local project · Optional adapters", inspector: "Inspector", transform: "Transform",
@@ -118,7 +121,7 @@
 
   function setBusy(busy, progress = "") {
     state.busy = busy;
-    for (const dialog of [projectDialog, importDialog]) {
+    for (const dialog of [projectDialog, importDialog, manageDialog]) {
       dialog.setAttribute("aria-busy", String(busy));
       dialog.querySelectorAll("button, input").forEach((element) => { element.disabled = busy; });
     }
@@ -183,6 +186,35 @@
     importDialog.showModal();
   }
 
+  byId("workbenchManageProject").addEventListener("click", () => {
+    if (state.busy || state.featureBusy || window.FrameTunerPortable?.busy?.()) return;
+    const project = window.FrameTunerWorkbench.projects().find((entry) => entry.id === activeProjectId());
+    if (!project || project.kind === "codex_pets") return;
+    manageDialog.dataset.projectId = project.id;
+    byId("workbenchManageName").value = project.label;
+    showError("workbenchManageError", "");
+    manageDialog.showModal();
+    byId("workbenchManageName").focus();
+  });
+  async function manageProject(action) {
+    if (state.busy) return;
+    const projectId = manageDialog.dataset.projectId;
+    const project = window.FrameTunerWorkbench.projects().find((entry) => entry.id === projectId);
+    if (!project || projectId !== activeProjectId()) return;
+    const label = byId("workbenchManageName").value.trim();
+    if (action === "rename" && !label) { showError("workbenchManageError", t("emptyName")); return; }
+    if (action === "remove" && !window.confirm(t("removeConfirm", { name: project.label }))) return;
+    setBusy(true);
+    try {
+      if (await window.FrameTunerWorkbench.manageProject(action, { projectId, label })) {
+        manageDialog.close();
+        notice(t(action === "rename" ? "renamed" : "removed"));
+      }
+    } catch (error) { showError("workbenchManageError", error); }
+    finally { setBusy(false); scheduleSync(); }
+  }
+  byId("workbenchManageForm").addEventListener("submit", (event) => { event.preventDefault(); void manageProject("rename"); });
+  byId("workbenchRemoveProject").addEventListener("click", () => { void manageProject("remove"); });
   byId("workbenchNewProject").addEventListener("click", openProjectDialog);
   byId("workbenchEmptyCreate").addEventListener("click", openProjectDialog);
   byId("workbenchImport").addEventListener("click", openImportDialog);
@@ -213,7 +245,7 @@
       syncFeatureSwitch();
     }
   });
-  for (const dialog of [projectDialog, importDialog]) {
+  for (const dialog of [projectDialog, importDialog, manageDialog]) {
     dialog.addEventListener("cancel", (event) => { if (state.busy) event.preventDefault(); });
     dialog.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => { if (!state.busy) dialog.close(); }));
   }
@@ -390,6 +422,8 @@
     state.queued = false;
     renderAnimationList();
     const hasProject = Boolean(activeProjectId());
+    byId("workbenchManageProject").hidden = state.capabilities?.features?.manageProjects !== true;
+    byId("workbenchManageProject").disabled = !hasProject || state.projectKind === "codex_pets";
     const current = window.FrameTunerWorkbench?.current?.();
     if (current?.projectKind) state.projectKind = current.projectKind;
     const adapter = state.capabilities?.adapters?.find((entry) => entry.id === state.projectKind);

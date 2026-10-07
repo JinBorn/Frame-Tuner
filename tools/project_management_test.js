@@ -1,0 +1,85 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const { chromium } = require('playwright-core');
+const { createWorkbenchService } = require('./workbench_service');
+const { findBrowser, startExportServer } = require('./frame_tuner');
+const { createSamplePackage } = require('./cocos/sample_package');
+
+async function test() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'frame-tuner-management-'));
+  let server, browser;
+  try {
+    const service = createWorkbenchService({ root });
+    const first = service.createProject({ id: 'hero', label: 'Hero' }).projectId;
+    const second = service.createProject({ id: 'other', label: 'Other' }).projectId;
+    const sample = createSamplePackage();
+    service.importAnimation({ projectId: first, profileId: 'hero', animationId: 'idle', fps: 12,
+      files: [{name:'frame.png', data:'data:image/png;base64,'+sample.files.get('frames/demo_0.png').toString('base64')}] });
+    const registry = service.store.readRegistry();
+    registry.projects.push({id:'codex_pets',kind:'codex_pets',label:'Hidden pets',dataDir:'data/projects/codex_pets',workspaceDir:'workspace/projects/codex_pets'});
+    service.store.writeRegistry(registry);
+    const data = service.projectData(first);
+    const before = fs.readFileSync(data.paths.tuning);
+    const framePath = path.join(root,data.manifest.profiles[0].animations[0].frames[0].path);
+    const frameBytes = fs.readFileSync(framePath);
+    assert.throws(() => service.store.renameProject(first,''));
+    assert.throws(() => service.store.renameProject(first));
+    assert.throws(() => service.store.removeProject('missing'));
+    assert.throws(() => service.store.removeProject('codex_pets'));
+    server = await startExportServer(root);
+    browser = await chromium.launch({executablePath:findBrowser(),headless:true});
+    const page = await browser.newPage({viewport:{width:1024,height:640}});
+    const errors=[];page.on('pageerror',error=>errors.push(error.message));
+    await page.goto(`${server.url}/?project=${first}&export=1`);
+    await page.evaluate(()=>window.FrameTunerWorkbench.ready);
+    await page.locator('#workbenchManageProject').waitFor({state:'visible'});
+    await page.locator('label:has(> #frameDisabled)').click();
+    assert.equal(await page.evaluate(()=>window.FrameTunerWorkbench.current().dirty),true);
+    await page.locator('#workbenchManageProject').click();
+    await page.locator('#workbenchManageName').fill('Renamed <hero>');
+    await page.locator('#workbenchRenameProject').click();
+    await page.waitForFunction(()=>!document.querySelector('#workbenchManageDialog').open);
+    assert.ok((await page.locator('#projectSelect option:checked').textContent()).endsWith('Renamed <hero>'));
+    assert.equal(await page.evaluate(()=>window.FrameTunerWorkbench.current().dirty),true,'Rename preserves unsaved edits');
+    assert.deepEqual(fs.readFileSync(data.paths.tuning),before);
+    await page.locator('#workbenchManageProject').click();
+    page.once('dialog',d=>d.dismiss());
+    await page.locator('#workbenchRemoveProject').click();
+    assert.ok(service.store.readRegistry().projects.some(p=>p.id===first));
+    let confirmations=0;
+    const cancelDirty = d => { confirmations++; return confirmations===1 ? d.accept() : d.dismiss(); };
+    page.on('dialog',cancelDirty);
+    await page.locator('#workbenchRemoveProject').click();
+    page.off('dialog',cancelDirty);
+    assert.equal(confirmations,2);
+    assert.ok(service.store.readRegistry().projects.some(p=>p.id===first));
+    page.on('dialog',d=>d.accept());
+    await page.locator('#workbenchRemoveProject').click();
+    await page.waitForFunction(id=>window.FrameTunerWorkbench.current().projectId===id,second);
+    assert.deepEqual(fs.readFileSync(data.paths.tuning),before);
+    assert.deepEqual(fs.readFileSync(framePath),frameBytes);
+    assert.ok(service.store.readRegistry().projects.some(p=>p.id==='codex_pets'),'Hidden integration remains registered');
+    await page.locator('#workbenchManageProject').click();
+    await page.locator('#workbenchRemoveProject').click();
+    await page.waitForFunction(()=>!window.FrameTunerWorkbench.current().projectId && !document.querySelector('#workbenchManageDialog').open);
+    assert.equal(await page.locator('#filmstrip').locator('.thumb').count(),0);
+    assert.equal(await page.locator('#workbenchManageProject').isDisabled(),true);
+    await page.reload();await page.evaluate(()=>window.FrameTunerWorkbench.ready);
+    assert.equal(await page.evaluate(()=>window.FrameTunerWorkbench.projects().length),0);
+    const recreated=service.createProject({id:'HERO',label:'Hero'}).projectId;
+    assert.notEqual(recreated.toLowerCase(),first.toLowerCase());
+    assert.equal(service.projectData(recreated).manifest.profiles.length,0);
+    assert.deepEqual(fs.readFileSync(framePath),frameBytes);
+    assert.deepEqual(errors,[]);
+    console.log('Project management passed: rename with dirty edits, cancellation, removal preserving files and hidden projects, empty state, fresh same-name project.');
+  } finally {
+    await browser?.close();
+    if(server?.child && server.child.exitCode===null) await new Promise(resolve=>{server.child.once('exit',resolve);server.child.kill();});
+    assert.equal(path.dirname(root),os.tmpdir());
+    assert.ok(path.basename(root).startsWith('frame-tuner-management-'));
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+}
+test().catch(error=>{console.error(error);process.exitCode=1;});

@@ -22,7 +22,7 @@ function capabilities(options = {}) {
   return {
     schemaVersion: 1,
     defaultKind: "frame_lite",
-    features: { createProject: true, importPng: true, importSheet: true, portableExport: true, codexPets: options.codexPets === true, codexPetsToggle: options.codexPetsToggle === true },
+    features: { manageProjects: options.manageProjects === true, createProject: true, importPng: true, importSheet: true, portableExport: true, codexPets: options.codexPets === true, codexPetsToggle: options.codexPetsToggle === true },
     adapters: Object.values(ADAPTERS).map((adapter) => ({ ...adapter, supported: true, enabled: adapter.id !== "codex_pets" || options.codexPets === true })),
   };
 }

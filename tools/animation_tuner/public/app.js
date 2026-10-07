@@ -7863,7 +7863,34 @@ window.XsxbFrameTunerLite = {
   },
 };
 window.XsxbFrameTunerLite.groups = () => window.XsxbFrameTunerLite.exportGroups({ allProfiles: true });
+async function manageWorkbenchProject(action, payload) {
+  if (!["rename", "remove"].includes(action) || payload.projectId !== activeProjectId()) throw new Error("Project selection changed.");
+  if (saveInFlight || frameAudioOperationPending() || selectionLoading || projectOperationInFlight || portableExportBusy()) throw new Error(language === "en" ? "Please wait for the current operation." : "请等待当前操作完成。");
+  const token = action === "remove" ? discardGuard() : null;
+  if (action === "remove" && !token) return false;
+  projectOperationInFlight = true;
+  try {
+    const response = await fetch(`/api/workbench/projects/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Project management failed.");
+    if (action === "rename") {
+      config.projects = result.projects;
+    } else {
+      const url = new URL(window.location.href);
+      if (result.activeProjectId) url.searchParams.set("project", result.activeProjectId);
+      else url.searchParams.delete("project");
+      window.history.replaceState(null, "", url);
+      await loadConfig({ projectId: result.activeProjectId || "", resetSession: true, discardToken: token });
+      resizeCanvas();
+    }
+    return true;
+  } finally {
+    projectOperationInFlight = false;
+    renderProjectSelect();
+  }
+}
 window.FrameTunerWorkbench = {
+  manageProject: manageWorkbenchProject,
   reload: reloadWorkbench,
   confirmDiscard: discardGuard,
   save,

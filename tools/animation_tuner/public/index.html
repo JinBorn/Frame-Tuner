@@ -38,6 +38,7 @@
         </label>
         <div id="projectBinding" class="projectBinding" aria-live="polite"></div>
         <div class="buttonRow projectActions">
+          <button id="workbenchManageProject" type="button" class="secondary" data-workbench-i18n="manageProject" hidden>管理项目</button>
           <button id="refreshProject" class="secondary" data-i18n="refreshAnimationList">刷新动画列表</button>
           <button id="addCodexPet" class="secondary" data-i18n="addCodexPet" hidden>＋ 导入新宠物</button>
         </div>
@@ -344,6 +345,15 @@
       </section>
       <footer class="statusBar"><span class="statusReady"><i></i><span data-workbench-i18n="localWorkspace">本地工作台</span></span><div id="status" class="status" role="status" aria-live="polite" hidden></div><span class="statusShortcut">Ctrl / ⌘ S <span data-workbench-i18n="save">保存</span></span></footer>
     </main>
+    <dialog id="workbenchManageDialog" class="workbenchDialog" aria-labelledby="workbenchManageTitle">
+      <form id="workbenchManageForm" class="workbenchForm">
+        <div class="dialogHeading"><h2 id="workbenchManageTitle" data-workbench-i18n="manageProject">管理项目</h2><button type="button" class="dialogClose" data-close-dialog aria-label="关闭">×</button></div>
+        <label class="field"><span data-workbench-i18n="projectName">项目名称</span><input id="workbenchManageName" required maxlength="160"></label>
+        <p class="dialogDescription" data-workbench-i18n="removeProjectHint">移除只影响项目列表，本地素材和调参文件仍保留。重新新建同名项目不会恢复这些数据。</p>
+        <p id="workbenchManageError" class="dialogError" role="alert" hidden></p>
+        <div class="dialogActions"><button id="workbenchRemoveProject" type="button" class="secondary" data-workbench-i18n="removeProject">从列表移除</button><button type="button" class="secondary" data-close-dialog data-workbench-i18n="cancel">取消</button><button id="workbenchRenameProject" type="submit" class="accentButton" data-workbench-i18n="renameProject">保存名称</button></div>
+      </form>
+    </dialog>
     <dialog id="workbenchProjectDialog" class="workbenchDialog" aria-labelledby="workbenchProjectTitle">
       <form id="workbenchProjectForm" class="workbenchForm">
         <div class="dialogHeading"><div><span class="dialogEyebrow">NEW WORKSPACE</span><h2 id="workbenchProjectTitle" data-workbench-i18n="newProject">新建项目</h2></div><button type="button" class="dialogClose" data-close-dialog aria-label="关闭">×</button></div>

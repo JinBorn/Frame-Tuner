@@ -290,6 +290,11 @@ function createProjectStore(root) {
     const detectedName = kind === "unity" ? unityProjectName(projectRoot) : godotProjectName(projectRoot);
     const label = String(payload.label || payload.name || payload.id || detectedName || (projectRoot ? path.basename(projectRoot) : "") || "New Project").trim() || "New Project";
     const usedIds = new Set(registry.projects.map((project) => project.id));
+    // Removed projects retain their files. Never reuse those directories.
+    for (const parent of ["data/projects", "workspace/projects", "audio/projects"]) {
+      const directory = path.join(root, parent);
+      if (fs.existsSync(directory)) for (const name of fs.readdirSync(directory)) usedIds.add(name);
+    }
     // New projects need distinct directories on Windows as well as POSIX hosts.
     // Registry normalization keeps historical IDs and data paths unchanged.
     const id = uniqueId(payload.id || label, usedIds, true);
@@ -305,6 +310,23 @@ function createProjectStore(root) {
     registry.projects.push(project);
     registry.activeProjectId = id;
     return writeRegistry(registry);
+  }
+
+  function manageProject(projectId, label) {
+    const registry = readRegistry();
+    const project = registry.projects.find((entry) => entry.id === projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    if (project.kind === "codex_pets") throw new Error("Manage Codex Pets through the optional integration switch.");
+    if (label !== undefined) {
+      if (typeof label !== "string" || !label.trim()) throw new Error("A project name is required.");
+      project.label = label.trim();
+    } else {
+      registry.projects = registry.projects.filter((entry) => entry.id !== projectId);
+    }
+    // Only the registry changes; imported assets and authored files stay intact.
+    const normalized = normalizeRegistry(registry);
+    writeJson(projectsPath, normalized);
+    return normalized;
   }
 
   function projectForClient(project) {
@@ -342,6 +364,11 @@ function createProjectStore(root) {
     readRegistry,
     resolveProject,
     setActiveProject,
+    renameProject: (projectId, label) => {
+      if (label === undefined) throw new Error("A project name is required.");
+      return manageProject(projectId, label);
+    },
+    removeProject: (projectId) => manageProject(projectId),
     slug,
     writeJson,
     writeRegistry,
