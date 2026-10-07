@@ -302,6 +302,7 @@
         <div class="toolbar">
           <div class="toolbarMain">
             <strong id="canvasTitle" data-i18n="canvas">画布</strong>
+            <div class="canvasToolRow" aria-describedby="hint">
             <div id="canvasTransformTool" role="group" aria-label="画布工具" data-tool="pan">
               <button type="button" data-canvas-tool="pan" aria-pressed="true" data-workbench-i18n="canvasBrowse">浏览</button>
               <button type="button" data-canvas-tool="move" aria-pressed="false" data-workbench-i18n="canvasMove">移动</button>
@@ -311,6 +312,7 @@
             <div id="previewSampling" role="group" aria-label="Preview sampling" title="仅影响预览；导出保持平滑采样">
               <button type="button" data-preview-sampling="smooth" aria-pressed="true" data-workbench-i18n="previewSmooth">平滑预览</button>
               <button type="button" data-preview-sampling="pixel" aria-pressed="false" data-workbench-i18n="previewPixel">像素预览</button>
+            </div>
             </div>
             <span id="hint" data-workbench-i18n="canvasTransformHint">选工具后拖动画布；缩放、旋转时左右拖动。中键平移视图；浏览模式保留框体和挂件编辑。</span>
 
