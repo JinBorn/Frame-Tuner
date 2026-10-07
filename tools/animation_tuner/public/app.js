@@ -7460,7 +7460,7 @@ els.stage.addEventListener("pointerdown", (event) => {
     beginDrag({ mode: "pan", x: event.clientX, y: event.clientY, viewX: view.x, viewY: view.y });
     return;
   }
-  const tool = document.getElementById("canvasTransformTool").value;
+  const tool = document.getElementById("canvasTransformTool").dataset.tool;
   if (event.button === 0 && tool !== "pan") {
     if (!currentGroup || selectionLoading || projectOperationInFlight || saveInFlight || portableExportBusy() || !canEditAdjustmentMode(adjustmentMode)) return;
     playing = false;

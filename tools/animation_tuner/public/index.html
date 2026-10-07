@@ -302,7 +302,12 @@
         <div class="toolbar">
           <div class="toolbarMain">
             <strong id="canvasTitle" data-i18n="canvas">画布</strong>
-            <select id="canvasTransformTool" aria-label="画布工具"><option value="pan" data-workbench-i18n="canvasBrowse">浏览</option><option value="move" data-workbench-i18n="canvasMove">移动</option><option value="scale" data-workbench-i18n="canvasScale">缩放</option><option value="rotate" data-workbench-i18n="canvasRotate">旋转</option></select>
+            <div id="canvasTransformTool" role="group" aria-label="画布工具" data-tool="pan">
+              <button type="button" data-canvas-tool="pan" aria-pressed="true" data-workbench-i18n="canvasBrowse">浏览</button>
+              <button type="button" data-canvas-tool="move" aria-pressed="false" data-workbench-i18n="canvasMove">移动</button>
+              <button type="button" data-canvas-tool="scale" aria-pressed="false" data-workbench-i18n="canvasScale">缩放</button>
+              <button type="button" data-canvas-tool="rotate" aria-pressed="false" data-workbench-i18n="canvasRotate">旋转</button>
+            </div>
             <span id="hint" data-workbench-i18n="canvasTransformHint">选工具后拖动画布；缩放、旋转时左右拖动。中键平移视图；浏览模式保留框体和挂件编辑。</span>
 
           </div>

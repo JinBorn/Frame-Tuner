@@ -218,8 +218,13 @@
   byId("workbenchManageForm").addEventListener("submit", (event) => { event.preventDefault(); void manageProject("rename"); });
   byId("workbenchRemoveProject").addEventListener("click", () => { void manageProject("remove"); });
   byId("workbenchNewProject").addEventListener("click", openProjectDialog);
-  byId("canvasTransformTool").addEventListener("change", (event) => {
-    byId("stage").style.cursor = event.target.value === "move" ? "move" : event.target.value === "pan" ? "grab" : "ew-resize";
+  byId("canvasTransformTool").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-canvas-tool]");
+    if (!button || button.disabled) return;
+    const tool = button.dataset.canvasTool;
+    byId("canvasTransformTool").dataset.tool = tool;
+    byId("canvasTransformTool").querySelectorAll("button").forEach((entry) => entry.setAttribute("aria-pressed", String(entry === button)));
+    byId("stage").style.cursor = tool === "move" ? "move" : tool === "pan" ? "grab" : "ew-resize";
   });
   byId("workbenchEmptyCreate").addEventListener("click", openProjectDialog);
   byId("workbenchImport").addEventListener("click", openImportDialog);
@@ -438,7 +443,7 @@
       if (byId("projectBinding").textContent !== bindingText) byId("projectBinding").textContent = bindingText;
     }
     const hasFrames = byId("filmstrip").childElementCount > 0;
-    byId("canvasTransformTool").disabled = !hasFrames;
+    byId("canvasTransformTool").querySelectorAll("button").forEach((button) => { button.disabled = !hasFrames; });
     byId("workbenchEmptyState").hidden = !state.ready || hasFrames;
     byId("workbenchEmptyCreate").hidden = hasProject;
     byId("workbenchEmptyImport").hidden = !hasProject;

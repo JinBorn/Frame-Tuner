@@ -44,7 +44,8 @@ async function test() {
     const before=await saved();
     const canvas=await page.locator('#stage').boundingBox();
     const drag=async(tool,dx,dy=0,button='left')=>{
-      await page.locator('#canvasTransformTool').selectOption(tool);
+      await page.locator(`[data-canvas-tool="${tool}"]`).click();
+      assert.equal(await page.locator(`[data-canvas-tool="${tool}"]`).getAttribute('aria-pressed'),'true');
       await page.mouse.move(canvas.x+canvas.width/2,canvas.y+canvas.height/2);
       await page.mouse.down({button});await page.mouse.move(canvas.x+canvas.width/2+dx,canvas.y+canvas.height/2+dy,{steps:4});await page.mouse.up({button});
     };
