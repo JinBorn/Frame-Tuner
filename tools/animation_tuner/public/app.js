@@ -73,6 +73,9 @@ const els = {
   playPause: document.querySelector("#playPause"),
   ghostToggle: document.querySelector("#ghostToggle"),
   applyBaseToFrame: document.querySelector("#applyBaseToFrame"),
+  resetFrameTransform: document.querySelector("#resetFrameTransform"),
+  copyFrameTransform: document.querySelector("#copyFrameTransform"),
+  applyFrameTransform: document.querySelector("#applyFrameTransform"),
   undo: document.querySelector("#undo"),
   undoTop: document.querySelector("#undoTop"),
   redoTop: document.querySelector("#redoTop"),
@@ -120,6 +123,13 @@ const I18N = {
     compareThenPlay: "对比 / 接着播放",
     coordHudIdle: "鼠标 -, - | 偏移 -, -",
     copyBaseToSelected: "复制 Base 到选中帧",
+    resetFrameTransform: "重置变换",
+    copyFrameTransform: "复制变换",
+    applyFrameTransform: "应用所选",
+    frameTransformActionsHint: "仅帧模式：重置恢复继承；复制当前帧后，可多选同动作的目标帧并应用。仅修改移动、缩放和旋转。",
+    frameTransformCopied: "已复制第 {frame} 帧变换，可选择同动作的目标帧并应用。",
+    frameTransformApplied: "已将复制的变换应用到 {count} 帧。",
+    frameTransformReset: "已重置 {count} 帧变换，恢复动作与角色继承。",
     deleteBoxSelected: "删除选中帧的碰撞框",
     disableFrame: "禁用此帧",
     dropAudioFile: "请把音频文件拖到当前帧音效区域。",
@@ -283,6 +293,13 @@ const I18N = {
     compareThenPlay: "Compare / then play",
     coordHudIdle: "Mouse -, - | Offset -, -",
     copyBaseToSelected: "Copy base to selected",
+    resetFrameTransform: "Reset",
+    copyFrameTransform: "Copy",
+    applyFrameTransform: "Apply selected",
+    frameTransformActionsHint: "Frame mode only: reset to inherited transforms, or copy the current frame and apply to selected frames in this animation. Only position, scale and rotation change.",
+    frameTransformCopied: "Copied frame {frame} transform. Select target frames in this animation and apply.",
+    frameTransformApplied: "Applied the copied transform to {count} frames.",
+    frameTransformReset: "Reset {count} frame transforms to animation and character inheritance.",
     deleteBoxSelected: "Delete box on selected frames",
     disableFrame: "Disable frame",
     dropAudioFile: "Drop an audio file onto the current frame SFX area.",
@@ -473,6 +490,7 @@ let frameImageAttachmentClipboard = [];
 let frameImageAttachmentClipboardProjectId = "";
 let ghost = true;
 let referenceFrameHiddenByKey = false;
+let frameTransformClipboard = null;
 let previewSampling = localStorage.getItem("frameTuner.previewSampling") === "pixel" ? "pixel" : "smooth";
 let playing = false;
 let lastPlay = 0;
@@ -1728,6 +1746,7 @@ function renderProjectSelect() {
 }
 
 function resetProjectSession() {
+  frameTransformClipboard = null;
   selectionTasks.invalidate();
   chainTasks.invalidate();
   selectionLoading = false;
@@ -3907,6 +3926,7 @@ function pruneNoopFrameOverrides() {
         && nearlyEqual(override?.offset?.x, base.offset.x)
         && nearlyEqual(override?.offset?.y, base.offset.y)
         && nearlyEqual(override?.rotation, base.rotation)
+        && Object.keys(frameOverrideMetadata(override)).length === 0
       ) {
         delete store[key];
       }
@@ -4058,6 +4078,76 @@ function syncAdjustmentInputs() {
     els.applyBaseToFrame.hidden = true;
     els.applyBaseToFrame.disabled = true;
   }
+  syncFrameTransformActions();
+}
+
+function frameTransformActionsEditable() {
+  return Boolean(currentGroup?.frames?.length) && adjustmentMode === "frame"
+    && !selectedFrameAttachment() && canEditFrameTransform() && !frameAttachmentEditingLocked()
+    && !selectionLoading && !playbackSwitching && !projectOperationInFlight && !saveInFlight
+    && !frameAssetOperationPending() && !portableExportBusy();
+}
+
+function frameTransformClipboardMatches() {
+  return frameTransformClipboard?.projectId === activeProjectId()
+    && frameTransformClipboard?.groupId === currentGroup?.uiId;
+}
+
+function syncFrameTransformActions() {
+  const enabled = frameTransformActionsEditable();
+  for (const button of [els.resetFrameTransform, els.copyFrameTransform]) {
+    if (button && button.disabled === enabled) button.disabled = !enabled;
+  }
+  const canApply = enabled && frameTransformClipboardMatches();
+  if (els.applyFrameTransform && els.applyFrameTransform.disabled === canApply) els.applyFrameTransform.disabled = !canApply;
+}
+
+function frameOverrideMetadata(override = {}) {
+  const metadata = structuredClone(override);
+  for (const key of ["visual_size", "visual_scale", "offset", "rotation"]) delete metadata[key];
+  return metadata;
+}
+
+function runFrameTransformAction(action) {
+  if (!frameTransformActionsEditable()) return;
+  // Programmatic clicks may not move focus like a normal pointer click does.
+  if (adjustmentNumberInputs().includes(document.activeElement)) document.activeElement.blur();
+  if (!frameTransformActionsEditable()) return;
+  playing = false;
+  playbackPrimaryGroup = null;
+  playbackSecondaryGroup = null;
+  if (els.playPause) els.playPause.textContent = t("play");
+  if (action === "copy") {
+    frameTransformClipboard = { projectId: activeProjectId(), groupId: currentGroup.uiId,
+      transform: structuredClone(frameTransform()), frameIndex: selectedFrame };
+    syncFrameTransformActions();
+    status(t("frameTransformCopied", { frame: selectedFrame + 1 }));
+    return;
+  }
+  if (action === "apply" && !frameTransformClipboardMatches()) return;
+  const indexes = selectedFrameIndexes();
+  const store = overrideStore();
+  const targets = action === "reset" ? indexes.filter(index => {
+    const value = store[tuningFrameKey(index)];
+    return value && ["visual_size", "visual_scale", "offset", "rotation"].some(key => Object.hasOwn(value, key));
+  }) : indexes;
+  if (targets.length) pushUndo(action === "reset" ? "reset frame transforms" : "apply frame transforms");
+  for (const index of targets) {
+    const key = tuningFrameKey(index);
+    const metadata = frameOverrideMetadata(store[key]);
+    if (action === "reset") {
+      if (Object.keys(metadata).length) store[key] = metadata;
+      else delete store[key];
+    } else {
+      setFrameTransform(index, structuredClone(frameTransformClipboard.transform));
+      store[key] = { ...metadata, ...store[key] };
+    }
+  }
+  if (targets.length) markDirty();
+  syncFrameInputs();
+  renderFilmstrip();
+  draw();
+  status(t(action === "reset" ? "frameTransformReset" : "frameTransformApplied", { count: targets.length }));
 }
 
 function syncBaseInputs() {
@@ -6295,6 +6385,7 @@ function updateAdjustmentFromInputs(editedInput = null) {
 }
 
 function animate(time) {
+  syncFrameTransformActions();
   if (!currentGroup || !images.length || playbackSwitching || selectionLoading) {
     requestAnimationFrame(animate);
     return;
@@ -7448,6 +7539,10 @@ if (els.deleteBox) {
     draw();
   });
 }
+
+els.resetFrameTransform?.addEventListener("click", () => runFrameTransformAction("reset"));
+els.copyFrameTransform?.addEventListener("click", () => runFrameTransformAction("copy"));
+els.applyFrameTransform?.addEventListener("click", () => runFrameTransformAction("apply"));
 
 els.applyBaseToFrame.addEventListener("click", () => {
   if (!canEditFrameTransform()) return;

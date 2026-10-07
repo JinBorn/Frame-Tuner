@@ -110,6 +110,11 @@
             <label class="number stepNumber"><span data-i18n="offsetX">偏移 X</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseX" data-step-dir="-1">&lsaquo;</button><input id="baseX" type="number" step="1" /><button type="button" class="numberStep" data-step-target="baseX" data-step-dir="1">&rsaquo;</button></span></label>
             <label class="number stepNumber"><span data-i18n="offsetY">偏移 Y</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseY" data-step-dir="-1">&lsaquo;</button><input id="baseY" type="number" step="1" /><button type="button" class="numberStep" data-step-target="baseY" data-step-dir="1">&rsaquo;</button></span></label>
           </div>
+          <div class="frameTransformActions" data-i18n-title="frameTransformActionsHint" title="仅帧模式：重置恢复继承；复制当前帧后，可多选同动作的目标帧并应用。仅修改移动、缩放和旋转。">
+            <button id="resetFrameTransform" type="button" class="secondary" data-i18n="resetFrameTransform" disabled>重置变换</button>
+            <button id="copyFrameTransform" type="button" class="secondary" data-i18n="copyFrameTransform" disabled>复制变换</button>
+            <button id="applyFrameTransform" type="button" class="secondary" data-i18n="applyFrameTransform" disabled>应用所选</button>
+          </div>
           <button id="applyBaseToFrame" class="secondary" data-i18n="copyBaseToSelected" hidden>复制 Base 到选中帧</button>
           <input id="characterBaseScale" type="hidden" readonly />
           <input id="characterBaseSource" type="hidden" readonly />

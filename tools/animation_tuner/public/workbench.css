@@ -172,6 +172,8 @@ button.save:hover { background: var(--accent-dark); }
 .numberStepper .numberStep { width: auto; font-size: 15px; color: var(--muted); }
 .numberStepper .numberStep:hover { color: var(--accent); background: var(--surface-2); }
 .frameOptionGrid { gap: 7px; }
+.frameTransformActions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 8px 0; }
+.frameTransformActions button { min-width: 0; min-height: 29px; padding: 5px 2px; font-size: 10px; white-space: nowrap; }
 .boxChoices { gap: 5px; }
 .boxChoice.activeBoxChoice { box-shadow: none; }
 .boxChoice span { font-size: 10px; }
