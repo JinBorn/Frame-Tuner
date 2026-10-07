@@ -17,7 +17,7 @@ async function test() {
     const service = createWorkbenchService({ root });
     service.createProject({ label: "Export transaction", id: "transaction" });
     const sample = createSamplePackage();
-    service.importAnimation({ projectId: "transaction", profileId: "hero", animationId: "idle", fps: 12, files: [{ name: "idle.png", data: `data:image/png;base64,${sample.files.get("frames/demo_0.png").toString("base64")}` }] });
+    service.importAnimation({ projectId: "transaction", profileId: "hero", animationId: "idle", fps: 12, files: [0, 2].map(index => ({ name: `idle_${index}.png`, data: `data:image/png;base64,${sample.files.get(`frames/demo_${index}.png`).toString("base64")}` })) });
     server = await startExportServer(root);
     browser = await chromium.launch({ executablePath: findBrowser(), headless: true });
     const page = await browser.newPage({ viewport: { width: 1440, height: 960 }, deviceScaleFactor: 1, acceptDownloads: true });
@@ -25,6 +25,7 @@ async function test() {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(`${server.url}/?project=transaction&export=1`, { waitUntil: "networkidle" });
     await page.evaluate(() => window.XsxbFrameTunerLite.ready);
+    await page.evaluate(() => window.XsxbFrameTunerLite.selectGroup(window.XsxbFrameTunerLite.current().groupId, { frameIndex: 1 }));
     await page.locator("#portablePadding").fill("37");
     await page.locator("#portableColumns").fill("3");
     await page.locator("#portableDestination").selectOption("directory");
@@ -76,6 +77,7 @@ async function test() {
     assert.equal((await state()).status, "Packaging source data and baked assets…", "Rejected competitors must not replace the active transaction's progress");
     releasePost();
     assert.deepEqual(await outcome(), { ok: true, filename: "transaction_sequence.zip" });
+    assert.equal(await page.evaluate(() => window.XsxbFrameTunerLite.current().frameIndex), 1, "export must restore the selected frame, not jump to the first frame");
     assert.deepEqual((await state()).states, [true, false], "Packaging must not release and reacquire the lock");
     assert.equal((await state()).busy, false);
     assert.equal((await state()).disabled, false);
@@ -85,6 +87,7 @@ async function test() {
     await page.route("**/api/workbench/export", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "fixture packaging failure" }) }));
     await start();
     assert.equal((await outcome()).ok, false);
+    assert.equal(await page.evaluate(() => window.XsxbFrameTunerLite.current().frameIndex), 1, "failed export also preserves selection");
     assert.equal((await state()).busy, false);
     assert.equal((await state()).status, "Export failed: fixture packaging failure");
     await page.locator('[data-language="zh"]').click();

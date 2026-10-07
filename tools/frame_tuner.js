@@ -36,6 +36,15 @@ function parseArgs(argv) {
       args[key] = rest[++index];
     }
   }
+  if (command === "export") {
+    for (const [key, minimum, maximum] of [["padding", 0, 1024], ["columns", 1, 64]]) {
+      if (args[key] === undefined) continue;
+      const value = Number(args[key]);
+      if (!String(args[key]).trim() || !Number.isInteger(value) || value < minimum || value > maximum) {
+        throw new Error(`--${key} must be an integer from ${minimum} through ${maximum}.`);
+      }
+    }
+  }
   return { command, args };
 }
 function required(args, key) {

@@ -232,7 +232,9 @@
       }
       return { projectId: original.projectId, format, manifest, files, source };
     } finally {
-      if (original.groupId) await selectExportGroup(api, original.groupId).catch(() => {});
+      if (original.groupId) await api.selectGroup(original.groupId, {
+        exportOperation: true, frameIndex: original.frameIndex, preserveView: true,
+      }).catch(() => {});
     }
   }
 

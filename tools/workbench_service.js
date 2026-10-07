@@ -3,7 +3,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { createProjectStore, EMPTY_MANIFEST, EMPTY_TUNING, projectEngine, reslash, slug } = require("./project_store");
+const { createProjectStore, EMPTY_MANIFEST, EMPTY_TUNING, filesystemId, projectEngine, reslash } = require("./project_store");
 const { capabilities } = require("./engine_adapters");
 
 function fail(message, code = "invalid_import", status = 400) {
@@ -17,7 +17,11 @@ function resolveWorkbenchAsset(root, requested) {
   const base = path.resolve(root);
   const raw = reslash(requested);
   const local = path.resolve(base, raw);
-  if ((local === base || local.startsWith(`${base}${path.sep}`)) && fs.existsSync(local) && fs.statSync(local).isFile()) return local;
+  if ((local === base || local.startsWith(`${base}${path.sep}`)) && fs.existsSync(local) && fs.statSync(local).isFile()) {
+    const realBase = fs.realpathSync(base), realAsset = fs.realpathSync(local);
+    if (realAsset.startsWith(`${realBase}${path.sep}`)) return realAsset;
+    return null;
+  }
   // Bundled brush textures belong to the checkout, while all imported assets
   // belong to FRAME_TUNER_ROOT. Do not turn this into a general checkout route.
   const prefix = "tools/animation_tuner/public/presets/attack_trails/";
@@ -35,9 +39,22 @@ function pngBuffer(file) {
   const match = /^data:image\/png;base64,([a-z0-9+/=\r\n]+)$/i.exec(String(file?.data || ""));
   if (!match || path.extname(String(file?.name || "")).toLowerCase() !== ".png") fail("Import requires named PNG files with PNG data URLs.");
   const buffer = Buffer.from(match[1], "base64");
-  if (buffer.length < 33 || !buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || buffer.toString("ascii", 12, 16) !== "IHDR") fail(`Invalid PNG: ${file.name}`);
+  if (buffer.length < 33 || !buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || buffer.toString("ascii", 12, 16) !== "IHDR" || buffer.readUInt32BE(8) !== 13) fail(`Invalid PNG: ${file.name}`);
   const width = buffer.readUInt32BE(16), height = buffer.readUInt32BE(20);
   if (width < 1 || height < 1 || width > 16384 || height > 16384) fail(`PNG dimensions must be between 1 and 16384: ${file.name}`);
+  let offset = 8, imageData = false, ended = false;
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset), type = buffer.toString("ascii", offset + 4, offset + 8);
+    if (length > buffer.length - offset - 12) fail(`Truncated PNG: ${file.name}`);
+    if (type === "IDAT" && length > 0) imageData = true;
+    offset += length + 12;
+    if (type === "IEND") {
+      if (length !== 0) fail(`Invalid PNG end chunk: ${file.name}`);
+      ended = true;
+      break;
+    }
+  }
+  if (!imageData || !ended) fail(`Incomplete PNG: ${file.name}`);
   return { name: path.basename(file.name), buffer, width, height, hash: crypto.createHash("sha256").update(buffer).digest("hex") };
 }
 
@@ -214,7 +231,15 @@ function createWorkbenchService(options = {}) {
       attackTrails: store.readJson(paths.attackTrails, { schemaVersion: 21, presets: [], bindings: {} }),
       settings: store.readJson(paths.settings, { schemaVersion: 1, canvas: { padding: 24 }, export: { sheetColumns: 8 } }),
     };
-    if (!result.manifest || !Array.isArray(result.manifest.profiles) || !result.tuning || Array.isArray(result.tuning) || typeof result.tuning !== "object" || !Array.isArray(result.frameImageAttachments) || !result.attackTrails || typeof result.attackTrails !== "object" || !result.settings || typeof result.settings !== "object") fail("Project data has an invalid structure; existing files were preserved.", "invalid_project_json", 500);
+    const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+    const optionalRecord = (value) => value === undefined || record(value);
+    if (!record(result.manifest) || !Array.isArray(result.manifest.profiles) || !record(result.tuning)
+      || !(Array.isArray(result.frameAudioBindings) || record(result.frameAudioBindings))
+      || !Array.isArray(result.frameImageAttachments) || !record(result.attackTrails) || !record(result.settings)
+      || !optionalRecord(result.attackTrails.bindings) || !optionalRecord(result.settings.canvas) || !optionalRecord(result.settings.export)
+      || ["values", "scene_settings", "frame_visual_overrides", "frame_playback_overrides", "frame_box_overrides", "attack_vfx_frame_overrides", "attack_vfx_playback_overrides"].some((field) => !optionalRecord(result.tuning[field]))) {
+      fail("Project data has an invalid structure; existing files were preserved.", "invalid_project_json", 500);
+    }
     return result;
   };
   const getCapabilities = () => capabilities({ manageProjects: typeof store.renameProject === "function", codexPets: typeof options.codexPets === "function" ? options.codexPets() : options.codexPets === true, codexPetsToggle: options.codexPetsToggle === true });
@@ -226,10 +251,14 @@ function createWorkbenchService(options = {}) {
       const registry = store.addProject({ label, id: payload.id, kind: "frame_lite" });
       project = registry.projects.find((entry) => entry.id === registry.activeProjectId);
     } else {
-      const used = new Set(store.readRegistry().projects.map((entry) => entry.id));
-      const base = slug(payload.id || label), suffix = (n) => n === 1 ? base : `${base}_${n}`;
+      const used = new Set(store.readRegistry().projects.map((entry) => entry.id.toLowerCase()));
+      for (const parent of ["data/lite/projects", "workspace/lite/projects"]) {
+        const directory = path.join(root, parent);
+        if (fs.existsSync(directory)) for (const name of fs.readdirSync(directory)) used.add(name.toLowerCase());
+      }
+      const base = filesystemId(payload.id || label), suffix = (n) => n === 1 ? base : `${base}_${n}`;
       let n = 1;
-      while (used.has(suffix(n))) n += 1;
+      while (used.has(suffix(n).toLowerCase())) n += 1;
       project = store.ensureProject(suffix(n), label);
     }
     return { ok: true, projectId: project.id, project: store.projectForClient(project), capabilities: getCapabilities() };
@@ -238,7 +267,7 @@ function createWorkbenchService(options = {}) {
     const data = projectData(payload.projectId);
     if (projectEngine(data.project) !== "lite") fail("Web imports require an independent workspace. Use the engine-specific importer for a bound project.", "project_not_neutral");
     if (!String(payload.profileId || "").trim() || !String(payload.animationId || "").trim()) fail("Character and animation names are required.");
-    const profileId = slug(payload.profileId), animationId = slug(payload.animationId);
+    const profileId = filesystemId(payload.profileId), animationId = filesystemId(payload.animationId);
     const fps = Number(payload.fps ?? 12);
     if (!Number.isFinite(fps) || fps <= 0 || fps > 240) fail("FPS must be greater than 0 and at most 240.");
     const manifest = data.manifest;

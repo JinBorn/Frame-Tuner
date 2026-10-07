@@ -50,9 +50,19 @@ function readSharedAttackTrailPresetStore(root) {
   const filePath = sharedAttackTrailPresetPath(root);
   if (!fs.existsSync(filePath)) return normalizeSharedAttackTrailPresetStore({});
   try {
-    return normalizeSharedAttackTrailPresetStore(JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "")));
-  } catch {
-    return normalizeSharedAttackTrailPresetStore({});
+    const raw = JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Array.isArray(raw.presets)
+      || (raw.schemaVersion !== undefined && raw.schemaVersion !== SHARED_ATTACK_TRAIL_PRESET_SCHEMA_VERSION)
+      || (raw.migratedProjectIds !== undefined && !Array.isArray(raw.migratedProjectIds))
+      || raw.presets.some((preset) => !preset || typeof preset !== "object" || Array.isArray(preset))) {
+      throw new Error("Invalid shared attack trail preset structure or schema version.");
+    }
+    return normalizeSharedAttackTrailPresetStore(raw);
+  } catch (cause) {
+    const error = new Error(`Cannot read shared attack trail presets; the original file was preserved: ${filePath}. ${cause.message}`);
+    error.code = "invalid_project_json";
+    error.cause = cause;
+    throw error;
   }
 }
 

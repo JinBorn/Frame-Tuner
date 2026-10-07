@@ -522,6 +522,7 @@ const LAYER_CARD_DRAG_TYPE = "application/x-xsxb-layer-card";
 let frameAudioDbPromise = null;
 let frameAudioSyncPromise = null;
 let frameAudioEditsInFlight = 0;
+let frameImageEditsInFlight = 0;
 let layerCardDrag = null;
 let showBoxes = localStorage.getItem(BOX_PREF_KEYS.show) === "true";
 let boxOnlyMode = false;
@@ -781,7 +782,7 @@ function loadedStatusText() {
 
 function updateSaveState() {
   if (!els.saveState || !els.save) return;
-  const saving = saveInFlight || frameAudioOperationPending();
+  const saving = saveInFlight || frameAssetOperationPending();
   const label = saving
     ? t("saving")
     : dirty
@@ -1546,8 +1547,8 @@ async function collectFrameAudioBindingsForSave() {
   return result;
 }
 
-function frameAudioOperationPending() {
-  return frameAudioEditsInFlight > 0 || frameAudioSyncPromise !== null;
+function frameAssetOperationPending() {
+  return frameAudioEditsInFlight > 0 || frameAudioSyncPromise !== null || frameImageEditsInFlight > 0;
 }
 
 async function syncFrameAudioBindingsToGame(options = {}) {
@@ -1765,7 +1766,7 @@ function resetProjectSession() {
 }
 
 function discardGuard() {
-  if (saveInFlight || frameAudioOperationPending() || projectOperationInFlight || portableExportBusy()) {
+  if (saveInFlight || frameAssetOperationPending() || projectOperationInFlight || portableExportBusy()) {
     status(language === "en" ? "Please wait for the current operation to finish." : "请等待当前保存或加载完成。");
     return null;
   }
@@ -1775,7 +1776,7 @@ function discardGuard() {
 
 async function reloadWorkbench(projectId = activeProjectId(), options = {}) {
   const token = options.discardToken || discardGuard();
-  if (!token || saveInFlight || frameAudioOperationPending() || projectOperationInFlight || portableExportBusy()) return false;
+  if (!token || saveInFlight || frameAssetOperationPending() || projectOperationInFlight || portableExportBusy()) return false;
   if (token.projectId !== activeProjectId() || token.revision !== dirtyRevision) {
     status(language === "en" ? "Edits changed during the operation. Save and reload again." : "操作期间又产生了编辑，请先保存后重新加载。");
     return false;
@@ -2761,7 +2762,7 @@ function frameTransform(index = selectedFrame, group = currentGroup) {
     scaleX: scaleVector.x,
     scaleY: scaleVector.y,
     offset: cloneVector(override.offset ?? base.offset),
-    rotation: Number(override.rotation || 0),
+    rotation: Number(override.rotation ?? base.rotation ?? 0),
   };
 }
 
@@ -4477,7 +4478,7 @@ async function duplicateFrameAfter(index, group) {
 
 async function changeFrameSequence(index, group, remove) {
   if (!group || config?.projectKind === "codex_pets" || !group.profileId) return;
-  if (selectionLoading || projectOperationInFlight || saveInFlight || frameAudioOperationPending() || portableExportBusy()) return;
+  if (selectionLoading || projectOperationInFlight || saveInFlight || frameAssetOperationPending() || portableExportBusy()) return;
   if (remove) {
     if (config?.projectKind !== "frame_lite" || group.frames.length <= 1) return;
     const message = language === "en"
@@ -6229,10 +6230,16 @@ function updateBaseFromInputs(transform = transformFromAdjustmentInputs()) {
     if (!key.startsWith(`${animationName}:`)) continue;
     const override = structuredClone(sourceOverrides[key]);
     if (!override) continue;
+    // Resolve axes from the original override before changing its uniform scale.
+    // Partial overrides inherit the old group's axes, not the already updated scale.
+    const overrideScale = override.visual_scale
+      ? cloneScaleVector(override.visual_scale, Number(override.visual_size ?? previousBase.scale))
+      : override.visual_size !== undefined
+        ? cloneScaleVector(null, Number(override.visual_size))
+        : { x: previousScaleX, y: previousScaleY };
     if (Number.isFinite(Number(override.visual_size))) {
       override.visual_size = Number(override.visual_size) * scaleRatio;
     }
-    const overrideScale = cloneScaleVector(override.visual_scale, Number(override.visual_size || nextBase.scale));
     override.visual_scale = {
       x: overrideScale.x * scaleXRatio,
       y: overrideScale.y * scaleYRatio,
@@ -6639,7 +6646,7 @@ async function syncUnityBakedFramesNow() {
 }
 
 async function save() {
-  if (saveInFlight || frameAudioOperationPending() || projectOperationInFlight || portableExportBusy() || !config) return;
+  if (saveInFlight || frameAssetOperationPending() || projectOperationInFlight || portableExportBusy() || !config) return;
   saveInFlight = true;
   updateSaveState();
   try {
@@ -7008,14 +7015,14 @@ function imageSizeFromDataUrl(dataUrl) {
   });
 }
 
-async function uploadFrameAttachmentImage(file, id) {
+async function uploadFrameAttachmentImage(file, id, projectId) {
   const data = await readFileAsDataUrl(file);
   const size = await imageSizeFromDataUrl(data);
   const res = await fetch("/api/frame-attachment-image", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      projectId: activeProjectId(),
+      projectId,
       id,
       name: file.name || "image",
       type: file.type || "",
@@ -7030,14 +7037,20 @@ async function uploadFrameAttachmentImage(file, id) {
 }
 
 async function bindFrameImageAttachmentFile(file, index = selectedFrame, group = currentGroup) {
+  if (saveInFlight || frameAssetOperationPending() || projectOperationInFlight || selectionLoading || portableExportBusy()) return false;
   if (!file || !group || frameAttachmentEditingLocked()) {
     if (frameAttachmentEditingLocked()) status(t("frameAttachmentTrailLocked"));
     return false;
   }
   const frameIndex = clampFrameIndex(index, group);
   const id = newLocalId("layer");
+  const projectId = activeProjectId();
+  const sourceConfig = config;
+  frameImageEditsInFlight += 1;
+  updateSaveState();
   try {
-    const image = await uploadFrameAttachmentImage(file, id);
+    const image = await uploadFrameAttachmentImage(file, id, projectId);
+    if (sourceConfig !== config || projectId !== activeProjectId()) return false;
     pushUndo("add attached image");
     const attachment = normalizeFrameImageAttachment({
       id,
@@ -7056,12 +7069,15 @@ async function bindFrameImageAttachmentFile(file, index = selectedFrame, group =
     frameImageAttachments.push(attachment);
     await loadImageCached(attachment).catch(() => null);
     selectFrameImageAttachment(attachment, frameIndex, group);
-    markDirty();
+    markDirty({ groups: [group] });
     status(t("frameAttachmentAdded", { name: attachment.name }));
     return true;
   } catch (error) {
     status(t("frameAttachmentUploadFailed", { message: error.message }));
     return false;
+  } finally {
+    frameImageEditsInFlight -= 1;
+    updateSaveState();
   }
 }
 
@@ -7230,9 +7246,30 @@ for (const input of [els.frameScale, els.frameScaleX, els.frameScaleY, els.frame
 armInputUndo(els.frameDuration, "frame duration");
 els.frameDuration.addEventListener("input", updateSelectedPlaybackFromInputs);
 if (els.groupTimeMs) {
-  armInputUndo(els.groupTimeMs, "group time");
-  els.groupTimeMs.addEventListener("input", applyGroupTimeFromInput);
-  els.groupTimeMs.addEventListener("change", applyGroupTimeFromInput);
+  // Commit one complete duration, rather than pushing history for each digit.
+  // applyGroupTimeFromInput owns the undo entry and the timing-conflict prompt.
+  els.groupTimeMs.addEventListener("focus", () => {
+    playing = false;
+    playbackPrimaryGroup = null;
+    playbackSecondaryGroup = null;
+    if (els.playPause) els.playPause.textContent = t("play");
+  });
+  els.groupTimeMs.addEventListener("change", () => {
+    const raw = els.groupTimeMs.value.trim();
+    if (!raw || !Number.isFinite(Number(raw))) {
+      syncGroupTimeInputs();
+      return;
+    }
+    applyGroupTimeFromInput();
+  });
+  els.groupTimeMs.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); els.groupTimeMs.blur(); }
+    else if (event.key === "Escape") {
+      event.preventDefault();
+      syncGroupTimeInputs();
+      els.groupTimeMs.blur();
+    }
+  });
 }
 if (els.frameAudioFile) {
   els.frameAudioFile.addEventListener("change", async () => {
@@ -7785,7 +7822,7 @@ window.addEventListener("keydown", (event) => {
   if (command && ["c", "v"].includes(event.key.toLowerCase()) && isTypingTarget(event)) return;
   if (command && event.key.toLowerCase() === "s") {
     event.preventDefault();
-    if (adjustmentNumberInputs().includes(document.activeElement)) document.activeElement.blur();
+    if ([...adjustmentNumberInputs(), els.groupTimeMs].includes(document.activeElement)) document.activeElement.blur();
     save().catch((error) => status(t("saveFailed", { message: error.message })));
     return;
   }
@@ -7843,7 +7880,7 @@ window.addEventListener("blur", () => {
 });
 
 window.addEventListener("beforeunload", (event) => {
-  if (!dirty) return;
+  if (!dirty && !saveInFlight && !frameAssetOperationPending() && !frameSequenceOperationInFlight) return;
   event.preventDefault();
   event.returnValue = "";
 });
@@ -7857,7 +7894,7 @@ function portableExportBusy() {
 // uses the explicit exportOperation option instead of synthetic DOM events.
 for (const eventName of ["click", "beforeinput", "input", "change", "pointerdown", "keydown", "drop", "wheel"]) {
   window.addEventListener(eventName, (event) => {
-    if (!portableExportBusy() && !frameSequenceOperationInFlight) return;
+    if (!portableExportBusy() && !frameSequenceOperationInFlight && frameImageEditsInFlight === 0) return;
     if (event.cancelable) event.preventDefault();
     event.stopImmediatePropagation();
   }, { capture: true, passive: false });
@@ -7907,7 +7944,7 @@ window.XsxbFrameTunerLite = {
     frameCount: currentGroup?.frames?.length || 0,
     frameIndex: selectedFrame,
     dirty,
-    saving: saveInFlight || frameAudioOperationPending(),
+    saving: saveInFlight || frameAssetOperationPending(),
     loading: selectionLoading || projectOperationInFlight,
     exporting: portableExportBusy(),
     loop: currentGroup?.loop !== false,
@@ -7949,7 +7986,7 @@ window.XsxbFrameTunerLite = {
 window.XsxbFrameTunerLite.groups = () => window.XsxbFrameTunerLite.exportGroups({ allProfiles: true });
 async function manageWorkbenchProject(action, payload) {
   if (!["rename", "remove"].includes(action) || payload.projectId !== activeProjectId()) throw new Error("Project selection changed.");
-  if (saveInFlight || frameAudioOperationPending() || selectionLoading || projectOperationInFlight || portableExportBusy()) throw new Error(language === "en" ? "Please wait for the current operation." : "请等待当前操作完成。");
+  if (saveInFlight || frameAssetOperationPending() || selectionLoading || projectOperationInFlight || portableExportBusy()) throw new Error(language === "en" ? "Please wait for the current operation." : "请等待当前操作完成。");
   const token = action === "remove" ? discardGuard() : null;
   if (action === "remove" && !token) return false;
   projectOperationInFlight = true;

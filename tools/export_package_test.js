@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const zlib = require("node:zlib");
 const { createSamplePackage } = require("./cocos/sample_package");
-const { buildExportPackage, crc32, safePackagePath, writePackageDirectory } = require("./export_package");
+const { buildExportPackage, archiveSource, crc32, safePackagePath, writePackageDirectory } = require("./export_package");
 const { createWorkbenchService } = require("./workbench_service");
 const { run } = require("./frame_tuner");
 
@@ -39,6 +39,15 @@ async function test() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "frame-tuner-export-test-"));
   try {
     const sample = createSamplePackage();
+    const archiveRoot = path.join(root, "archive-root");
+    const outside = path.join(root, "outside");
+    fs.mkdirSync(archiveRoot); fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, "private.txt"), "not part of project");
+    fs.symlinkSync(outside, path.join(archiveRoot, "linked"), process.platform === "win32" ? "junction" : "dir");
+    assert.throws(() => archiveSource({ manifest: { path: "linked/private.txt" } }, new Map(), { root: archiveRoot }), /outside workspace/);
+    assert.throws(() => archiveSource({ manifest: { path: "tools/animation_tuner/public/../../../package.json" } }, new Map(), { root: archiveRoot }), /outside bundled assets/);
+    fs.writeFileSync(path.join(archiveRoot, "..frame.png"), sample.files.get("frames/demo_0.png"));
+    assert.doesNotThrow(() => archiveSource({ manifest: { path: "..frame.png" } }, new Map(), { root: archiveRoot }), "a leading pair of dots inside a filename is not a parent directory");
     const input = path.join(root, "input"); fs.mkdirSync(input);
     fs.writeFileSync(path.join(input, "frame_10.png"), sample.files.get("frames/demo_2.png"));
     fs.writeFileSync(path.join(input, "frame_2.png"), sample.files.get("frames/demo_0.png"));

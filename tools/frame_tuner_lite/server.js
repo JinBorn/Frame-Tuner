@@ -12,12 +12,14 @@ const {
 const {
   attackTrailsWithSharedPresets,
   attackTrailsWithoutSharedPresets,
-  saveSharedAttackTrailPresets,
+  readSharedAttackTrailPresetStore,
+  normalizeSharedAttackTrailPresetStore,
   sharedAttackTrailPresetPath,
 } = require("../attack_trail_presets");
 const { EMPTY_MANIFEST, EMPTY_SETTINGS, EMPTY_TUNING, createLiteStore, reslash, slug } = require("./store");
 const { withUtf8Charset } = require("../http_content_type");
-const { createWorkbenchService, resolveWorkbenchAsset, commitImportFiles } = require("../workbench_service");
+const { assertLocalRequest, readRequestBody: readBody } = require("../http_security");
+const { createWorkbenchService, resolveWorkbenchAsset, commitImportFiles, pngBuffer } = require("../workbench_service");
 const { adapterForProject } = require("../engine_adapters");
 
 function createLiteApp(options = {}) {
@@ -78,17 +80,18 @@ function audioExtension(binding, mime = "") {
   return AUDIO_EXTENSION_BY_MIME[String(mime || binding?.type || "").toLowerCase()] || "";
 }
 
-function saveFrameAudioBindings(project, payload) {
+function prepareFrameAudioBindings(project, payload) {
   const target = store.paths(project);
   const workspace = target.workspaceDir;
   const audioDirectory = path.join(workspace, "audio");
-  const bindings = [];
+  const bindings = [], writes = [];
   for (const input of audioBindingsArray(payload)) {
     const next = { ...input };
     delete next.data;
     delete next.file;
     const dataMatch = /^data:(audio\/[a-z0-9.+-]+)(?:;[^,]*)?;base64,([a-z0-9+/=\r\n]+)$/i.exec(String(input.data || ""));
     let full = null;
+    let size;
     let mime = String(input.type || dataMatch?.[1] || "").toLowerCase();
     if (dataMatch) {
       const buffer = Buffer.from(dataMatch[2], "base64");
@@ -96,27 +99,34 @@ function saveFrameAudioBindings(project, payload) {
       if (!buffer.length || !extension) throw new Error(`${input.name || "音效"}: 不支持的音频格式。`);
       const hash = crypto.createHash("sha256").update(buffer).digest("hex");
       full = path.join(audioDirectory, `${hash}${extension}`);
-      fs.mkdirSync(audioDirectory, { recursive: true });
-      if (!fs.existsSync(full)) fs.writeFileSync(full, buffer);
+      writes.push([full, buffer]);
+      size = buffer.length;
       mime = AUDIO_MIME_BY_EXTENSION[extension] || mime;
     } else {
       full = safeResolve(ROOT, input.path || input.file || "");
       const extension = path.extname(full || "").toLowerCase();
-      if (!full || !isInside(full, workspace) || !fs.existsSync(full) || !AUDIO_MIME_BY_EXTENSION[extension]) {
-        throw new Error(`${input.name || "音效"}: 缺少可保存的音频数据或 Lite 稳定路径，已阻止覆盖原音效。`);
+      if (!full || !isInside(full, workspace) || !fs.existsSync(full) || !AUDIO_MIME_BY_EXTENSION[extension]
+          || !fs.statSync(full).isFile() || !isInside(fs.realpathSync(full), fs.realpathSync(workspace))) {
+        throw Object.assign(new Error(`${input.name || "音效"}: 缺少可保存的音频数据或 Lite 稳定路径，已阻止覆盖原音效。`), { status: 400, code: "invalid_audio_path" });
       }
       mime = mime || AUDIO_MIME_BY_EXTENSION[extension];
+      size = fs.statSync(full).size;
     }
     bindings.push({
       ...next,
       key: String(input.key || ""),
       name: path.basename(String(input.name || path.basename(full) || "audio")),
       type: mime,
-      size: fs.statSync(full).size,
+      size,
       path: reslash(path.relative(ROOT, full)),
     });
   }
-  store.writeJson(target.frameAudio, bindings);
+  return { bindings, writes };
+}
+
+function saveFrameAudioBindings(project, payload) {
+  const { bindings, writes } = prepareFrameAudioBindings(project, payload);
+  commitImportFiles([...writes, [store.paths(project).frameAudio, `${JSON.stringify(bindings, null, 2)}\n`]]);
   return bindings;
 }
 
@@ -130,20 +140,6 @@ function send(res, status, body, contentType = "application/json") {
   res.end(data);
 }
 
-function readBody(req, limit = 256 * 1024 * 1024) {
-  if (req.workbenchBody !== undefined) return Promise.resolve(req.workbenchBody);
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) { reject(new Error("Request body is too large.")); req.destroy(); return; }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
-}
 
 function pngSize(filePath) {
   try {
@@ -303,13 +299,6 @@ function remapFrameOverrideDictionary(source, framePrefix, frameIndex) {
   return result;
 }
 
-function bindingTargetsFrame(entry, profileId, animationId) {
-  const metadata = entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {};
-  const profile = String(metadata.profileId || entry?.profileId || "");
-  const animation = String(metadata.animation || entry?.animation || "");
-  return profile === profileId && (animation === animationId || animation === `${profileId}/${animationId}`);
-}
-
 function bindingAtFrame(entry, frameIndex, options = {}) {
   const next = structuredClone(entry);
   const replaceFrameSuffix = (value) => String(value || "").replace(/:\d+$/, `:${frameIndex}`);
@@ -317,9 +306,11 @@ function bindingAtFrame(entry, frameIndex, options = {}) {
   if (next.frameKey) next.frameKey = replaceFrameSuffix(next.frameKey);
   if (Number.isFinite(Number(next.frame))) next.frame = frameIndex;
   if (Number.isFinite(Number(next.displayFrame))) next.displayFrame = frameIndex;
+  if (Object.hasOwn(next, "frameIndex")) next.frameIndex = frameIndex;
   if (next.metadata && typeof next.metadata === "object") {
     next.metadata.frame = frameIndex;
     next.metadata.displayFrame = frameIndex;
+    if (Object.hasOwn(next.metadata, "frameIndex")) next.metadata.frameIndex = frameIndex;
   }
   if (options.newId && next.id) next.id = `layer_${crypto.randomBytes(10).toString("hex")}`;
   return next;
@@ -328,13 +319,8 @@ function bindingAtFrame(entry, frameIndex, options = {}) {
 function duplicateFrameBindings(entries, profileId, animationId, frameIndex, options = {}) {
   const result = [];
   for (const entry of Array.isArray(entries) ? entries : []) {
-    if (!bindingTargetsFrame(entry, profileId, animationId)) {
-      result.push(entry);
-      continue;
-    }
-    const metadata = entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {};
-    const currentFrame = Number(metadata.frame ?? entry.frame);
-    if (!Number.isFinite(currentFrame)) {
+    const currentFrame = frameBindingIndex(entry, options.projectId, profileId, animationId);
+    if (currentFrame === null) {
       result.push(entry);
       continue;
     }
@@ -367,13 +353,13 @@ function duplicateTrailFrameSlices(trails, bindingKey, frameIndex) {
 function duplicateProjectFrame(project, payload) {
   const profileId = String(payload.profileId || "");
   const animationId = String(payload.animationId || "");
-  const frameIndex = Math.max(0, Math.round(Number(payload.frameIndex || 0)));
+  const frameIndex = Number(payload.frameIndex);
   const target = store.paths(project);
   const manifest = store.readJson(target.manifest, EMPTY_MANIFEST);
   const profile = (Array.isArray(manifest.profiles) ? manifest.profiles : []).find((entry) => String(entry.id) === profileId);
   const animation = profile?.animations?.find((entry) => String(entry.id || entry.name) === animationId);
   const frames = Array.isArray(animation?.frames) ? animation.frames : null;
-  if (!profile || !animation || !frames || frameIndex >= frames.length) {
+  if (!["number", "string"].includes(typeof payload.frameIndex) || String(payload.frameIndex).trim() === "" || !Number.isInteger(frameIndex) || frameIndex < 0 || !profile || !animation || !frames || frameIndex >= frames.length) {
     throw new Error(`Frame not found: ${profileId}/${animationId}:${frameIndex}`);
   }
   const copiedFrame = structuredClone(frames[frameIndex]);
@@ -382,19 +368,16 @@ function duplicateProjectFrame(project, payload) {
 
   const tuning = store.readJson(target.tuning, EMPTY_TUNING);
   const framePrefix = `${profileId}/${animationId}:`;
-  tuning.frame_visual_overrides = remapFrameOverrideDictionary(tuning.frame_visual_overrides, framePrefix, frameIndex);
-  tuning.frame_playback_overrides = remapFrameOverrideDictionary(tuning.frame_playback_overrides, framePrefix, frameIndex);
-  tuning.frame_box_overrides = remapFrameOverrideDictionary(tuning.frame_box_overrides, framePrefix, frameIndex);
-  const audio = duplicateFrameBindings(audioBindingsArray(store.readJson(target.frameAudio, [])), profileId, animationId, frameIndex);
-  const attachments = duplicateFrameBindings(store.readJson(target.frameImageAttachments, []), profileId, animationId, frameIndex, { newId: true });
-  const trails = duplicateTrailFrameSlices(normalizeAttackTrails(store.readJson(target.attackTrails, EMPTY_ATTACK_TRAILS)), `${profileId}/${animationId}`, frameIndex);
-
-  store.writeJson(target.manifest, manifest);
-  store.writeJson(target.tuning, tuning);
-  store.writeJson(target.frameAudio, audio);
-  store.writeJson(target.frameImageAttachments, attachments);
-  store.writeJson(target.attackTrails, trails);
-  return { frameIndex: frameIndex + 1, frameCount: frames.length, warnings: validateLiteProject(project) };
+  for (const field of ["frame_visual_overrides", "frame_playback_overrides", "frame_box_overrides", "attack_vfx_frame_overrides", "attack_vfx_playback_overrides"]) {
+    if (tuning[field] !== undefined) tuning[field] = remapFrameOverrideDictionary(tuning[field], framePrefix, frameIndex);
+  }
+  const audio = duplicateFrameBindings(audioBindingsArray(store.readJson(target.frameAudio, [])), profileId, animationId, frameIndex, { projectId: project.id });
+  const attachments = duplicateFrameBindings(store.readJson(target.frameImageAttachments, []), profileId, animationId, frameIndex, { projectId: project.id, newId: true });
+  const trails = duplicateTrailFrameSlices(store.readJson(target.attackTrails, EMPTY_ATTACK_TRAILS), `${profileId}/${animationId}`, frameIndex);
+  const settings = store.readJson(target.settings, EMPTY_SETTINGS);
+  const warnings = validateLiteProject(project, { target, manifest, audio, settings, attackTrails: normalizeAttackTrails(trails) });
+  commitImportFiles([[target.manifest, manifest], [target.tuning, tuning], [target.frameAudio, audio], [target.frameImageAttachments, attachments], [target.attackTrails, trails]].map(([file, value]) => [file, `${JSON.stringify(value, null, 2)}\n`]));
+  return { frameIndex: frameIndex + 1, frameCount: frames.length, warnings };
 }
 
 function deleteFrameOverrideDictionary(source, framePrefix, frameIndex) {
@@ -408,11 +391,9 @@ function deleteFrameOverrideDictionary(source, framePrefix, frameIndex) {
   return result;
 }
 
-function deleteFrameBindings(entries, projectId, profileId, animationId, frameIndex) {
+function frameBindingIndex(entry, projectId, profileId, animationId) {
   const animationMatches = (name) => name === animationId || name === `${profileId}/${animationId}`;
-  const projectMatches = (id) => !id || id === "legacy" || id === projectId;
-  const result = [];
-  for (const entry of Array.isArray(entries) ? entries : []) {
+  const projectMatches = (id) => !projectId || !id || id === "legacy" || id === projectId;
     const raw = { ...entry, ...(entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : {}) };
     let index = null;
     if (projectMatches(raw.projectId) && (!raw.profileId || raw.profileId === profileId) && (!raw.animation || animationMatches(raw.animation))) {
@@ -427,11 +408,16 @@ function deleteFrameBindings(entries, projectId, profileId, animationId, frameIn
           || (parts.length === 6 && parts[1] === profileId && animationMatches(parts[3]))) { index = Number(parts.at(-1)); break; }
       }
     }
+  return index;
+}
+
+function deleteFrameBindings(entries, projectId, profileId, animationId, frameIndex) {
+  const result = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const index = frameBindingIndex(entry, projectId, profileId, animationId);
     if (index === frameIndex) continue;
     if (index !== null && index > frameIndex) {
       const shifted = bindingAtFrame(entry, index - 1);
-      if (Object.hasOwn(shifted, "frameIndex")) shifted.frameIndex = index - 1;
-      if (shifted.metadata && Object.hasOwn(shifted.metadata, "frameIndex")) shifted.metadata.frameIndex = index - 1;
       result.push(shifted);
     } else result.push(entry);
   }
@@ -525,7 +511,7 @@ function configResponse(projectId) {
     activeProjectId: project.id, activeProject: store.projectForClient(project), projects, scenes: [],
     profiles: data.manifest.profiles.map((profile) => ({ id: profile.id, label: profile.label, kind: profile.kind, sourceFacesLeft: profile.sourceFacesLeft === true, scale_semantic: "character_group_frame", anchor_mode: "manifest_anchor_mode", supports: profile.supports })),
     frameAudioBindings: data.audio, frameImageAttachments: data.attachments, attackTrails: data.attackTrails,
-    tuning: { ...data.tuning.values, scene_settings: data.tuning.scene_settings || {}, frame_visual_overrides: data.tuning.frame_visual_overrides || {}, frame_playback_overrides: data.tuning.frame_playback_overrides || {}, frame_box_overrides: data.tuning.frame_box_overrides || {} },
+    tuning: { ...data.tuning.values, scene_settings: data.tuning.scene_settings || {}, frame_visual_overrides: data.tuning.frame_visual_overrides || {}, frame_playback_overrides: data.tuning.frame_playback_overrides || {}, frame_box_overrides: data.tuning.frame_box_overrides || {}, attack_vfx_frame_overrides: data.tuning.attack_vfx_frame_overrides || {}, attack_vfx_playback_overrides: data.tuning.attack_vfx_playback_overrides || {} },
     tuningDefaults: {}, bossTuning: {}, act2StatueBossTuning: {}, act2StatueBossDefaults: {}, huangXianTuning: {}, huangXianDefaults: {}, huangXianManifest: {}, soulTuning: {}, soulDefaults: {}, soulManifest: {}, yechengPropTuning: {}, yechengPropDefaults: {},
     warnings: validateLiteProject(project, data), references: {}, projectKind: "frame_lite", projectEngine: "lite", capabilities: adapterForProject(project), liteSettings: data.settings,
     configRevision: projectConfigRevision(project),
@@ -546,29 +532,51 @@ function saveAttachmentImage(project, payload) {
   return { path: reslash(path.relative(ROOT, full)), assetHash: hash, name: String(payload.name || path.basename(full)), type: match[1].toLowerCase(), width: Number(payload.width || size.width || 0), height: Number(payload.height || size.height || 0) };
 }
 
-function replaceFrame(project, payload) {
+function prepareReplacementFrame(project, payload) {
   const full = safeResolve(ROOT, payload.path);
   const workspace = store.paths(project).workspaceDir;
-  const match = /^data:image\/png;base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(String(payload.data || ""));
-  if (!full || !isInside(full, workspace) || path.extname(full).toLowerCase() !== ".png" || !match) throw new Error("Frame replacement must be a PNG inside the active Lite workspace.");
-  fs.writeFileSync(full, Buffer.from(match[1], "base64"));
-  return { path: reslash(path.relative(ROOT, full)), ...pngSize(full) };
+  if (!full || !isInside(full, workspace) || path.extname(full).toLowerCase() !== ".png"
+      || !fs.existsSync(full) || !fs.statSync(full).isFile()
+      || !isInside(fs.realpathSync(full), fs.realpathSync(workspace))) throw Object.assign(new Error("Frame replacement must be an existing PNG inside the active Lite workspace."), { status: 400, code: "invalid_frame_path" });
+  const { buffer, width, height } = pngBuffer({ name: path.basename(full), data: payload.data });
+  return { full, buffer, result: { path: reslash(path.relative(ROOT, full)), width, height } };
+}
+
+function replaceFrame(project, payload) {
+  const prepared = prepareReplacementFrame(project, payload);
+  commitImportFiles([[prepared.full, prepared.buffer]]);
+  return prepared.result;
+}
+
+function replaceAnimationFrames(project, frames, files) {
+  const prepared = frames.map((frame, index) => prepareReplacementFrame(project, { path: frame.path, data: files[index].data }));
+  const unique = new Map();
+  for (const frame of prepared) {
+    const resolved = fs.realpathSync(frame.full);
+    const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+    if (unique.has(key) && !unique.get(key).buffer.equals(frame.buffer)) throw Object.assign(new Error("Multiple frames share one image path; provide identical replacement bytes or import a new animation."), { status: 400, code: "shared_frame_path" });
+    unique.set(key, frame);
+  }
+  commitImportFiles([...unique.values()].map((frame) => [frame.full, frame.buffer]));
+  return prepared.map((frame) => frame.result);
 }
 
 function savePayload(project, payload) {
   const target = store.paths(project);
-  const tuning = {
-    schemaVersion: 1,
-    values: payload.values && typeof payload.values === "object" ? payload.values : {},
-    scene_settings: payload.scene_settings && typeof payload.scene_settings === "object" ? payload.scene_settings : {},
-    frame_visual_overrides: payload.frame_visual_overrides && typeof payload.frame_visual_overrides === "object" ? payload.frame_visual_overrides : {},
-    frame_playback_overrides: payload.frame_playback_overrides && typeof payload.frame_playback_overrides === "object" ? payload.frame_playback_overrides : {},
-    frame_box_overrides: payload.frame_box_overrides && typeof payload.frame_box_overrides === "object" ? payload.frame_box_overrides : {},
-  };
+  const tuning = store.readJson(target.tuning, EMPTY_TUNING);
+  for (const field of ["values", "scene_settings", "frame_visual_overrides", "frame_playback_overrides", "frame_box_overrides", "attack_vfx_frame_overrides", "attack_vfx_playback_overrides"]) {
+    if (!Object.hasOwn(payload, field)) continue;
+    if (!payload[field] || typeof payload[field] !== "object" || Array.isArray(payload[field])) throw new Error(`${field} must be an object.`);
+    tuning[field] = payload[field];
+  }
   const requestedAudio = payload.frame_audio_bindings || payload.frameAudioBindings || [];
   const currentAudio = audioBindingsArray(store.readJson(target.frameAudio, []));
-  const attachments = Array.isArray(payload.frame_image_attachments) ? payload.frame_image_attachments : [];
-  const trails = normalizeAttackTrails(payload.attack_trails || EMPTY_ATTACK_TRAILS);
+  if (Object.hasOwn(payload, "frame_image_attachments") && !Array.isArray(payload.frame_image_attachments)) throw new Error("frame_image_attachments must be an array.");
+  const attachments = payload.frame_image_attachments ?? store.readJson(target.frameImageAttachments, []);
+  const trailsProvided = Object.hasOwn(payload, "attack_trails");
+  if (trailsProvided && (!payload.attack_trails || typeof payload.attack_trails !== "object" || Array.isArray(payload.attack_trails))) throw new Error("attack_trails must be an object.");
+  const existingTrails = store.readJson(target.attackTrails, EMPTY_ATTACK_TRAILS);
+  const trails = normalizeAttackTrails(trailsProvided ? payload.attack_trails : existingTrails);
   for (const segments of Object.values(trails.bindings)) {
     for (const segment of segments) {
       const texture = safeResolve(ROOT, segment.texture?.path || "");
@@ -579,14 +587,20 @@ function savePayload(project, payload) {
       if (segment.colorMode === "original" && !segment.texture?.hasEffectiveAlpha) throw new Error(`${segment.name}: 原色模式需要带有效 Alpha 的 RGBA PNG。`);
     }
   }
-  saveSharedAttackTrailPresets(ROOT, `lite:${project.id}`, trails.presets);
-  const audio = Array.isArray(requestedAudio) && requestedAudio.length === 0 && currentAudio.length > 0
-    ? currentAudio
-    : saveFrameAudioBindings(project, requestedAudio);
-  store.writeJson(target.tuning, tuning);
-  store.writeJson(target.frameImageAttachments, attachments);
-  const projectTrails = attackTrailsWithoutSharedPresets(trails);
-  store.writeJson(target.attackTrails, projectTrails);
+  const prepared = Array.isArray(requestedAudio) && requestedAudio.length === 0 && currentAudio.length > 0
+    ? { bindings: currentAudio, writes: [] }
+    : prepareFrameAudioBindings(project, requestedAudio);
+  const audio = prepared.bindings;
+  const projectTrails = trailsProvided ? attackTrailsWithoutSharedPresets(trails) : existingTrails;
+  const jsonWrites = [[target.tuning, tuning], [target.frameAudio, audio], [target.frameImageAttachments, attachments], [target.attackTrails, projectTrails]];
+  if (trailsProvided) {
+    const shared = readSharedAttackTrailPresetStore(ROOT);
+    shared.presets = trails.presets;
+    const id = `lite:${project.id}`;
+    if (!shared.migratedProjectIds.includes(id)) shared.migratedProjectIds.push(id);
+    jsonWrites.push([sharedAttackTrailPresetPath(ROOT), normalizeSharedAttackTrailPresetStore(shared)]);
+  }
+  commitImportFiles([...prepared.writes, ...jsonWrites.map(([file, value]) => [file, `${JSON.stringify(value, null, 2)}\n`])]);
   return { tuning, audio, attachments, trails: projectTrails };
 }
 
@@ -613,6 +627,7 @@ function serveStatic(res, pathname) {
 
 const requestHandler = async (req, res) => {
   try {
+    assertLocalRequest(req);
     const url = new URL(req.url, "http://127.0.0.1");
     if (req.method === "POST") {
       req.workbenchBody = await readBody(req);
@@ -713,7 +728,7 @@ const requestHandler = async (req, res) => {
       const frames = Array.isArray(payload.frames) ? payload.frames : [];
       const files = Array.isArray(payload.files) ? payload.files : [];
       if (!frames.length || frames.length !== files.length) return send(res, 400, { error: "Replacement PNG count must match the animation frame count." });
-      return send(res, 200, { ok: true, frames: frames.map((frame, index) => replaceFrame(project, { path: frame.path, data: files[index].data })) });
+      return send(res, 200, { ok: true, frames: replaceAnimationFrames(project, frames, files) });
     }
     if (req.method === "POST" && url.pathname === "/api/lite/settings") {
       const payload = JSON.parse(await readBody(req));
@@ -774,6 +789,7 @@ const requestHandler = async (req, res) => {
     return serveStatic(res, url.pathname);
   } catch (error) {
     if (!error.status || error.status >= 500) console.error(error.message || error);
+    if (error.status === 413) res.setHeader("connection", "close");
     return send(res, error.status || (error instanceof SyntaxError ? 400 : 500), { error: String(error.message || error), code: error.code || "request_failed" });
   }
 };
@@ -783,6 +799,9 @@ return {
   buildGroups,
   configResponse,
   duplicateFrameBindings,
+  duplicateProjectFrame,
+  savePayload,
+  replaceAnimationFrames,
   deleteFrameBindings,
   deleteFrameOverrideDictionary,
   deleteTrailFrameSlices,

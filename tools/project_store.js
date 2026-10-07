@@ -38,6 +38,13 @@ function safeResolve(base, requested) {
   return full === base || full.startsWith(`${base}${path.sep}`) ? full : null;
 }
 
+// New filesystem IDs must work on Windows too. Keep slug's historical registry
+// normalization unchanged so existing project IDs and directories do not move.
+function filesystemId(value, fallback = "project") {
+  const id = slug(value, fallback).replace(/[. ]+$/g, "") || fallback;
+  return /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(id) ? `project_${id}` : id;
+}
+
 function samePath(left, right) {
   if (!left || !right) return false;
   return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
@@ -297,7 +304,7 @@ function createProjectStore(root) {
     }
     // New projects need distinct directories on Windows as well as POSIX hosts.
     // Registry normalization keeps historical IDs and data paths unchanged.
-    const id = uniqueId(payload.id || label, usedIds, true);
+    const id = uniqueId(filesystemId(payload.id || label), usedIds, true);
     const project = {
       id,
       label,
@@ -381,6 +388,7 @@ module.exports = {
   EMPTY_TUNING,
   bindingScopeForProject,
   createProjectStore,
+  filesystemId,
   godotProjectName,
   projectEngine,
   reslash,

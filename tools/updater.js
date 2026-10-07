@@ -102,11 +102,13 @@ function performUpdate(root) {
   if (blockReason) throw new Error(`Update blocked: ${blockReason}`);
 
   runGit(root, ["fetch", "--prune", "origin", OFFICIAL_BRANCH], { timeout: 120000 });
-  const latestCommit = runGit(root, ["rev-parse", `origin/${OFFICIAL_BRANCH}`]).output;
+  // An explicit fetch always records its result in FETCH_HEAD. The user's
+  // remote fetch refspec may leave origin/main stale or not create it at all.
+  const latestCommit = runGit(root, ["rev-parse", "FETCH_HEAD"]).output;
   if (latestCommit !== before.currentCommit) {
-    const ancestor = runGit(root, ["merge-base", "--is-ancestor", before.currentCommit, `origin/${OFFICIAL_BRANCH}`], { allowFailure: true });
+    const ancestor = runGit(root, ["merge-base", "--is-ancestor", before.currentCommit, latestCommit], { allowFailure: true });
     if (!ancestor.ok) throw new Error("Local main is not a fast-forward ancestor of origin/main.");
-    runGit(root, ["merge", "--ff-only", `origin/${OFFICIAL_BRANCH}`], { timeout: 120000 });
+    runGit(root, ["merge", "--ff-only", latestCommit], { timeout: 120000 });
   }
 
   const afterCommit = runGit(root, ["rev-parse", "HEAD"]).output;

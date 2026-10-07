@@ -31,9 +31,10 @@ const {
 } = require("../codex_pets");
 const { checkForUpdates, performUpdate } = require("../updater");
 const { withUtf8Charset } = require("../http_content_type");
+const { assertLocalRequest, readRequestBody: readBody } = require("../http_security");
 const { frameBoxCoverageIssues } = require("../box_estimator");
 const { createLiteApp } = require("../frame_tuner_lite/server");
-const { createWorkbenchService, resolveWorkbenchAsset } = require("../workbench_service");
+const { createWorkbenchService, resolveWorkbenchAsset, pngBuffer, commitImportFiles } = require("../workbench_service");
 const { adapterForProject, capabilities } = require("../engine_adapters");
 
 const ROOT = path.resolve(process.env.FRAME_TUNER_ROOT || path.join(__dirname, "..", ".."));
@@ -101,21 +102,6 @@ function send(res, status, body, contentType = "application/json") {
   res.end(data);
 }
 
-function readBody(req) {
-  if (req.workbenchBody !== undefined) return Promise.resolve(req.workbenchBody);
-  return new Promise((resolve, reject) => {
-    let body = "";
-    let bytes = 0;
-    req.setEncoding("utf8");
-    req.on("data", (chunk) => {
-      bytes += Buffer.byteLength(chunk);
-      if (bytes > 256 * 1024 * 1024) { const error = new Error("Request body exceeds 256 MiB."); error.status = 413; reject(error); return; }
-      body += chunk;
-    });
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
-  });
-}
 
 function safeResolve(base, requested) {
   const full = path.resolve(base, String(requested || ""));
@@ -1374,18 +1360,36 @@ function saveFrameAttachmentImage(payload, project) {
   };
 }
 
-function replaceFrameImage(payload, project) {
+function prepareReplacementFrameImage(payload, project) {
   const relPath = reslash(payload.path || "");
   const fullPath = safeResolve(ROOT, relPath);
   const workspaceDir = projectStore.projectWorkspaceDir(project);
-  if (!fullPath || !isInside(fullPath, workspaceDir) || path.extname(fullPath).toLowerCase() !== ".png") {
-    throw new Error("Frame replacement path must be a PNG under the active project workspace.");
+  if (!fullPath || !isInside(fullPath, workspaceDir) || path.extname(fullPath).toLowerCase() !== ".png"
+      || !fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()
+      || !isInside(fs.realpathSync(fullPath), fs.realpathSync(workspaceDir))) {
+    throw Object.assign(new Error("Frame replacement path must be an existing PNG under the active project workspace."), { status: 400, code: "invalid_frame_path" });
   }
-  const match = /^data:image\/png;base64,(.+)$/i.exec(String(payload.data || ""));
-  if (!match) throw new Error("Expected a PNG data URL.");
-  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-  fs.writeFileSync(fullPath, Buffer.from(match[1], "base64"));
-  return { path: relPath, ...getPngSize(fullPath) };
+  const { buffer, width, height } = pngBuffer({ name: path.basename(fullPath), data: payload.data });
+  return { fullPath, buffer, result: { path: relPath, width, height } };
+}
+
+function replaceFrameImage(payload, project) {
+  const prepared = prepareReplacementFrameImage(payload, project);
+  commitImportFiles([[prepared.fullPath, prepared.buffer]]);
+  return prepared.result;
+}
+
+function replaceAnimationImages(frames, files, project) {
+  const prepared = frames.map((frame, index) => prepareReplacementFrameImage({ path: frame.path, data: files[index].data }, project));
+  const unique = new Map();
+  for (const frame of prepared) {
+    const resolved = fs.realpathSync(frame.fullPath);
+    const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+    if (unique.has(key) && !unique.get(key).buffer.equals(frame.buffer)) throw Object.assign(new Error("Multiple frames share one image path; provide identical replacement bytes or import a new animation."), { status: 400, code: "shared_frame_path" });
+    unique.set(key, frame);
+  }
+  commitImportFiles([...unique.values()].map((frame) => [frame.fullPath, frame.buffer]));
+  return prepared.map((frame) => frame.result);
 }
 
 function projectsResponse() {
@@ -1442,6 +1446,7 @@ ensureDataFiles();
 
 const server = http.createServer(async (req, res) => {
   try {
+    assertLocalRequest(req);
     const parsed = new URL(req.url, "http://127.0.0.1");
     if (req.method === "POST") req.workbenchBody = await readBody(req);
     if (req.method === "GET" && parsed.pathname === "/api/workbench/capabilities") return send(res, 200, capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true, manageProjects: true }));
@@ -1688,7 +1693,7 @@ const server = http.createServer(async (req, res) => {
       if (!frames.length || frames.length !== files.length) {
         return send(res, 400, { error: `Expected exactly ${frames.length} PNG files` });
       }
-      const result = frames.map((frame, index) => replaceFrameImage({ path: frame.path, data: files[index].data }, project));
+      const result = replaceAnimationImages(frames, files, project);
       const unitySync = projectEngine(project) === "unity" ? syncUnityProject(ROOT, projectStore, project) : null;
       return send(res, 200, { ok: true, frames: result, unitySync });
     }
@@ -1713,6 +1718,7 @@ const server = http.createServer(async (req, res) => {
     return serveStatic(req, res, parsed.pathname);
   } catch (error) {
     if (!error.status || error.status >= 500) console.error(error.message || error);
+    if (error.status === 413) res.setHeader("connection", "close");
     return send(res, error.status || (error instanceof SyntaxError ? 400 : 500), { error: String(error.message || error), code: error.code || "request_failed" });
   }
 });
@@ -1721,4 +1727,4 @@ if (require.main === module) server.listen(PORT, "127.0.0.1", () => {
   console.log(`XSXB Frame Tuner running at http://127.0.0.1:${PORT}`);
   console.log(`Workspace root: ${ROOT}`);
 });
-module.exports = { server, configResponse, workbench };
+module.exports = { server, configResponse, workbench, replaceAnimationImages };

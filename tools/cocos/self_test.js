@@ -60,6 +60,20 @@ const frames = [{ durationMs: 120 }, { durationMs: 0, disabled: true }, { durati
   assert.throws(() => clock.advance(Infinity), /finite/);
 }
 {
+  const clock = new FrameTunerClock();
+  let visits = 0;
+  // A zero-duration update must never consume a very short positive frame.
+  clock.start([{ durationMs: 1e-10 }], true, { frame: () => {
+    visits += 1;
+    assert.ok(visits < 10, "small durations must not cause an unbounded loop");
+  } });
+  clock.advance(0);
+  assert.equal(visits, 1);
+  clock.advance(1e-10);
+  assert.equal(visits, 2);
+  assert.equal(clock.cycles, 1);
+}
+{
   const anchor = frameAnchor({ origin: { x: 10, y: 80 }, width: 40, height: 100 });
   close(anchor.x, 0.25); close(anchor.y, 0.2);
   const box = { position: { x: 20, y: -10 }, size: { x: 4, y: 8 }, rotation: 90 };

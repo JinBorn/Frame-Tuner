@@ -51,7 +51,10 @@ export class FrameTunerClock {
         this.elapsedMs += deltaMs;
         while (this.playing && generation === this.generation) {
             const duration = this.frames[this.frameIndex].durationMs;
-            if (this.elapsedMs + 1e-8 < duration) break;
+            // Bound rounding tolerance by the duration. A fixed epsilon larger
+            // than a short frame would otherwise loop forever with zero delta.
+            const tolerance = Math.min(1e-8, duration * 1e-8);
+            if (duration - this.elapsedMs > tolerance) break;
             this.elapsedMs = Math.max(0, this.elapsedMs - duration);
             this.position += 1;
             let completedCycle = false;

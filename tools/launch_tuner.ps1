@@ -25,6 +25,18 @@ $target = if ($Mode -eq "lite") {
   }
 }
 
+# The server reads these same variables. Check and open its actual port rather
+# than the default when launching an isolated or custom-port workspace.
+$configuredPort = if ($Mode -eq "lite") { $env:LITE_PORT } else { $env:PORT }
+if (-not [string]::IsNullOrEmpty($configuredPort)) {
+  $parsedPort = 0
+  if (-not [int]::TryParse($configuredPort.Trim(), [ref]$parsedPort) -or $parsedPort -lt 1 -or $parsedPort -gt 65535) {
+    Write-Error "Invalid server port '$configuredPort'. Use an integer from 1 through 65535."
+    exit 1
+  }
+  $target.Port = $parsedPort
+}
+
 # Do not terminate an existing session or another checkout when launching.
 $listeners = Get-NetTCPConnection -State Listen -LocalPort $target.Port -ErrorAction SilentlyContinue
 if ($listeners) {

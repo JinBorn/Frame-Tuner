@@ -90,6 +90,10 @@ function archiveSource(projectData, files, options = {}) {
   if (!projectData) return null;
   const root = path.resolve(options.root || projectData.root || process.env.FRAME_TUNER_ROOT || path.join(__dirname, ".."));
   const codeRoot = path.resolve(__dirname, "..");
+  const isWithin = (base, full) => {
+    const relative = path.relative(base, full);
+    return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  };
   const source = {};
   for (const key of ["format", "version", "projectId", "projectKind", "engine", "profiles", "groups", "manifest", "tuning", "frameAudioBindings", "frameImageAttachments", "attackTrails", "settings"]) {
     if (projectData[key] !== undefined) source[key] = structuredClone(projectData[key]);
@@ -108,10 +112,18 @@ function archiveSource(projectData, files, options = {}) {
     } else {
       if (/^(?:https?:|blob:)/i.test(value)) return value;
       let full = path.resolve(root, value);
-      let relative = path.relative(root, full);
-      if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(`Source asset is outside workspace: ${value}`);
-      if (!fs.existsSync(full) && value.replaceAll("\\", "/").startsWith("tools/animation_tuner/public/")) full = path.resolve(codeRoot, value);
+      let allowedRoot = root;
+      if (!isWithin(root, full)) throw new Error(`Source asset is outside workspace: ${value}`);
+      if (!fs.existsSync(full) && value.replaceAll("\\", "/").startsWith("tools/animation_tuner/public/")) {
+        allowedRoot = path.join(codeRoot, "tools/animation_tuner/public");
+        full = path.resolve(codeRoot, value);
+        if (!isWithin(allowedRoot, full)) throw new Error(`Source asset is outside bundled assets: ${value}`);
+      }
       if (!fs.existsSync(full) || !fs.statSync(full).isFile()) throw new Error(`Missing source asset: ${value}`);
+      // A workspace junction or symlink must not include unrelated local files
+      // in a portable archive, even when its lexical path is inside the root.
+      full = fs.realpathSync(full);
+      if (!isWithin(fs.realpathSync(allowedRoot), full)) throw new Error(`Source asset is outside workspace: ${value}`);
       buffer = fs.readFileSync(full);
       extension = path.extname(full).toLowerCase() || ".bin";
     }

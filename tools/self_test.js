@@ -721,7 +721,7 @@ assert.match(liteServerSource, /url\.pathname === "\/api\/duplicate-frame"/);
 assert.match(liteServerSource, /function duplicateProjectFrame\(/);
 assert.match(liteServerSource, /function projectConfigRevision\(/);
 assert.match(liteServerSource, /sharedAttackTrailPresetPath\(ROOT\)/);
-assert.match(liteServerSource, /saveSharedAttackTrailPresets\(ROOT, `lite:\$\{project\.id\}`, trails\.presets\)/);
+// Shared preset persistence and rollback are exercised by frame_edit_audit_test.js.
 assert.match(liteServerSource, /code: "stale_config"/);
 assert.doesNotMatch(liteServerSource, /Lite 不绑定音效/);
 assert.match(liteContractSource, /portable audio files plus JSON events/);

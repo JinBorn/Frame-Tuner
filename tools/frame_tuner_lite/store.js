@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { filesystemId } = require("../project_store");
 
 const EMPTY_MANIFEST = Object.freeze({ schemaVersion: 1, profiles: [] });
 const EMPTY_TUNING = Object.freeze({
@@ -122,7 +123,7 @@ function createLiteStore(root) {
 
   function ensureProject(id, label = id) {
     const registry = readRegistry();
-    const projectId = slug(id || label, "lite_project");
+    const projectId = filesystemId(id || label, "lite_project");
     let project = registry.projects.find((entry) => entry.id === projectId);
     if (!project) {
       project = normalizeProject({ id: projectId, label });
