@@ -4567,15 +4567,19 @@ function renderFilmstripGroup(group, label) {
       ${audioBadge}
       <button type="button" class="frameSelect" aria-pressed="${inSelection}" aria-label="${escapeHtml(item.title)}">
         ${frameThumbnailMarkup(frame)}
-        <span class="thumbLabel">${label}${index + 1}</span>
       </button>
+      <div class="thumbCaption">
+        <span class="thumbLabel">${label}${index + 1}</span>
+        <div class="frameActions">
+          <button type="button" class="frameCopyButton ${canDuplicate ? "" : "disabled"}" data-action="duplicate-frame" ${canDuplicate ? "" : "disabled"} aria-label="${t("frame")} ${index + 1}: ${language === "en" ? "Duplicate frame" : "复制本帧并插入右侧"}" title="${language === "en" ? "Duplicate frame" : "复制本帧并插入右侧"}">⧉</button>
+          ${showDelete ? `<button type="button" class="frameDeleteButton" data-action="delete-frame" ${group.frames.length > 1 ? "" : "disabled"} aria-label="${t("frame")} ${index + 1}: ${deleteLabel}" title="${group.frames.length > 1 ? deleteLabel : (language === "en" ? "Keep at least one frame" : "至少保留一帧")}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg></button>` : ""}
+        </div>
+      </div>
       <div class="thumbDuration">
         <button type="button" class="durationStep" data-delta="${-FRAME_DURATION_STEP_MS}" ${canAdjustDuration ? "" : "disabled"} aria-label="${t("frame")} ${index + 1}: -${FRAME_DURATION_STEP_MS}ms" title="-${FRAME_DURATION_STEP_MS}ms">-</button>
         <b>${frameDurationMsLabel(index, group)}</b>
         <button type="button" class="durationStep" data-delta="${FRAME_DURATION_STEP_MS}" ${canAdjustDuration ? "" : "disabled"} aria-label="${t("frame")} ${index + 1}: +${FRAME_DURATION_STEP_MS}ms" title="+${FRAME_DURATION_STEP_MS}ms">+</button>
-        <button type="button" class="frameCopyButton ${canDuplicate ? "" : "disabled"}" data-action="duplicate-frame" ${canDuplicate ? "" : "disabled"} aria-label="${t("frame")} ${index + 1}: ${language === "en" ? "Duplicate frame" : "复制本帧并插入右侧"}" title="复制本帧并插入右侧">⧉</button>
-      </div>
-      ${showDelete ? `<button type="button" class="frameDeleteButton" data-action="delete-frame" ${group.frames.length > 1 ? "" : "disabled"} aria-label="${t("frame")} ${index + 1}: ${deleteLabel}" title="${group.frames.length > 1 ? deleteLabel : (language === "en" ? "Keep at least one frame" : "至少保留一帧")}">${language === "en" ? "Delete frame" : "删除帧"}</button>` : ""}`;
+      </div>`;
     const sfxBadge = item.querySelector(".frameSfxBadge");
     if (sfxBadge) {
       const removeSfx = async (event) => {

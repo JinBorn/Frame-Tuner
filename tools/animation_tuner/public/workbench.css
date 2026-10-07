@@ -222,8 +222,8 @@ button.save:hover { background: var(--accent-dark); }
 .filmstrip { border: 0; border-radius: 0; box-shadow: none; padding: 12px; gap: 8px; min-height: 0; }
 .frameStack { flex-basis: 112px; min-width: 112px; min-height: 0; padding: 0 0 4px; gap: 6px; }
 .thumb { width: 108px; min-width: 108px; height: 126px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-3); box-shadow: none; padding: 0; grid-template-rows: 1fr 22px 27px; }
-.thumb:has(> .frameSelect) { grid-template-rows: minmax(0, 1fr) 27px; }
-.frameSelect { width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; display: grid; grid-template-rows: minmax(0, 1fr) 22px; text-align: left; color: inherit; }
+.thumb:has(> .thumbCaption) { grid-template-rows: minmax(0, 1fr) 22px 27px; }
+.frameSelect { width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; display: grid; grid-template-rows: minmax(0, 1fr); text-align: left; color: inherit; }
 .frameSelect:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); }
 .frameSelect:focus-visible { outline-offset: -3px; }
 .thumb.selected { background: color-mix(in srgb, var(--accent) 8%, var(--panel-3)); color: var(--ink); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
@@ -232,15 +232,21 @@ button.save:hover { background: var(--accent-dark); }
 .thumb img { height: 70px; }
 .thumbSprite { height: 70px; }
 .thumbLabel { font: 10px var(--data-font); font-weight: 400; padding: 4px 7px; color: var(--muted); }
-.thumbDuration { gap: 2px; grid-template-columns: 20px minmax(25px, 1fr) 20px 20px; padding: 2px 4px 4px; }
+.thumbCaption { display: flex; align-items: center; justify-content: space-between; min-width: 0; padding-right: 4px; }
+.thumbCaption .thumbLabel { flex: 1; padding-right: 2px; }
+.frameActions { display: flex; flex-shrink: 0; gap: 2px; }
+.thumbDuration { gap: 2px; grid-template-columns: 20px minmax(25px, 1fr) 20px; padding: 2px 4px 4px; }
 .thumbDuration b { font: 9px var(--data-font); color: var(--muted); }
-.thumb:has(.frameDeleteButton) { height: 150px; grid-template-rows: 1fr 27px 24px; }
-.frameDeleteButton { min-height: 22px; height: 22px; padding: 0 6px; margin: 0 4px 3px; border: 0; box-shadow: none; background: transparent; color: var(--muted); font-size: 10px; }
+.frameDeleteButton { display: inline-flex; align-items: center; justify-content: center; }
+.frameDeleteButton svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .frameDeleteButton:hover:not(:disabled) { color: #ff8989; background: rgba(255, 100, 100, .1); }
 .frameDeleteButton:disabled { opacity: .35; cursor: default; }
-.durationStep, .frameCopyButton { height: 20px; min-height: 20px; width: 20px; border: 0; box-shadow: none; padding: 0; font-size: 11px; border-radius: 3px; background: transparent; color: var(--muted); }
+.durationStep, .frameCopyButton, .frameDeleteButton { height: 20px; min-height: 20px; width: 20px; border: 0; box-shadow: none; padding: 0; font-size: 11px; border-radius: 3px; background: transparent; color: var(--muted); }
 .frameSfxBadge { width: 21px; height: 21px; min-height: 21px; border: 1px solid var(--line); box-shadow: none; background: var(--panel-2); color: var(--accent); }
 .attachmentThumb { min-width: 108px; width: 108px; height: 76px; grid-template-rows: 1fr 23px; background: var(--surface); box-shadow: none; }
+.attachmentThumb:has(> .frameSelect) { grid-template-rows: minmax(0, 1fr); }
+.attachmentThumb > .frameSelect { grid-template-rows: minmax(0, 1fr) 22px; }
+.attachmentThumb > .frameSelect img { height: 100%; min-height: 0; }
 .attachmentThumb.selectedAttachment { box-shadow: none; border-color: var(--accent); }
 .attachmentAction, .attachmentLockBadge { border-width: 1px; box-shadow: none; font-weight: 400; }
 .coordHud { border-width: 1px; box-shadow: none; font-weight: 400; font-size: 10px; }
