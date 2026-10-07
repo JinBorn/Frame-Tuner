@@ -12,6 +12,7 @@
   const state = { files: [], busy: false, featureBusy: false, ready: false, projectKind: "", capabilities: null, queued: false };
   const translations = {
     zh: {
+      canvasTransformHint: "选工具后拖动画布；缩放、旋转时左右拖动。中键平移视图；浏览模式保留框体和挂件编辑。", canvasBrowse: "浏览", canvasMove: "移动", canvasScale: "缩放", canvasRotate: "旋转", numericTransformHint: "输入数值后按 Enter 或移开焦点应用；Esc 取消输入。",
       manageProject: "管理项目", renameProject: "保存名称", removeProject: "从列表移除", removeProjectHint: "移除只影响项目列表，本地素材和调参文件仍保留。重新新建同名项目不会恢复这些数据。", removeConfirm: "从列表移除项目「{name}」？本地素材和调参文件将保留。", renamed: "项目名称已更新。", removed: "项目已从列表移除，本地文件已保留。",
       newProject: "新建项目", import: "导入素材", assets: "素材库", animationLibrary: "动画资源", animations: "动作",
       noAnimations: "还没有动画，导入一组序列帧开始创作。", noMatches: "没有匹配的动作，试试其他关键词。",
@@ -40,6 +41,7 @@
       petsEnabled: "已启用 Codex Pets，可在项目列表中选择宠物。", petsDisabled: "已关闭 Codex Pets，宠物项目已从列表隐藏。", petsUpdating: "正在更新宠物功能…",
     },
     en: {
+      canvasTransformHint: "Drag to transform; drag horizontally to scale or rotate. Middle-drag pans. Browse keeps box and attachment editing.", canvasBrowse: "Browse", canvasMove: "Move", canvasScale: "Scale", canvasRotate: "Rotate", numericTransformHint: "Press Enter or leave the field to apply. Esc cancels typing.",
       manageProject: "Manage project", renameProject: "Save name", removeProject: "Remove from list", removeProjectHint: "Removal only affects the project list. Local assets and settings are kept. Creating a new project with the same name will not restore them.", removeConfirm: "Remove project {name} from the list? Local assets and settings will be kept.", renamed: "Project renamed.", removed: "Project removed from the list. Local files were kept.",
       newProject: "New project", import: "Import assets", assets: "Assets", animationLibrary: "Animation library", animations: "Animations",
       noAnimations: "Import a sequence to start your first animation.", noMatches: "No matching animations. Try another search.",
@@ -216,6 +218,9 @@
   byId("workbenchManageForm").addEventListener("submit", (event) => { event.preventDefault(); void manageProject("rename"); });
   byId("workbenchRemoveProject").addEventListener("click", () => { void manageProject("remove"); });
   byId("workbenchNewProject").addEventListener("click", openProjectDialog);
+  byId("canvasTransformTool").addEventListener("change", (event) => {
+    byId("stage").style.cursor = event.target.value === "move" ? "move" : event.target.value === "pan" ? "grab" : "ew-resize";
+  });
   byId("workbenchEmptyCreate").addEventListener("click", openProjectDialog);
   byId("workbenchImport").addEventListener("click", openImportDialog);
   byId("workbenchEmptyImport").addEventListener("click", openImportDialog);
@@ -433,6 +438,7 @@
       if (byId("projectBinding").textContent !== bindingText) byId("projectBinding").textContent = bindingText;
     }
     const hasFrames = byId("filmstrip").childElementCount > 0;
+    byId("canvasTransformTool").disabled = !hasFrames;
     byId("workbenchEmptyState").hidden = !state.ready || hasFrames;
     byId("workbenchEmptyCreate").hidden = hasProject;
     byId("workbenchEmptyImport").hidden = !hasProject;

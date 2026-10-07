@@ -96,18 +96,19 @@
         </details>
         <details class="panel" data-panel="adjustment-base" open>
           <summary><h2 data-workbench-i18n="transform">变换</h2></summary>
+          <p class="dialogDescription" data-workbench-i18n="numericTransformHint">输入数值后按 Enter 或移开焦点应用；Esc 取消输入。</p>
           <div class="adjustModeRow">
             <label class="toggle compact"><input id="adjustCharacter" type="checkbox" /><span data-i18n="character">角色</span></label>
             <label class="toggle compact"><input id="adjustGroup" type="checkbox" /><span data-i18n="group">组</span></label>
             <label class="toggle compact"><input id="adjustFrame" type="checkbox" /><span data-i18n="frame">帧</span></label>
           </div>
           <div class="adjustGrid">
-            <label class="number stepNumber"><span data-i18n="scale">缩放</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseScale" data-step-dir="-1">&lsaquo;</button><input id="baseScale" type="number" step="0.001" readonly /><button type="button" class="numberStep" data-step-target="baseScale" data-step-dir="1">&rsaquo;</button></span></label>
-            <label class="number stepNumber"><span data-i18n="rotate">旋转</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseRotation" data-step-dir="-1">&lsaquo;</button><input id="baseRotation" type="number" step="1" readonly /><button type="button" class="numberStep" data-step-target="baseRotation" data-step-dir="1">&rsaquo;</button></span></label>
-            <label class="number stepNumber"><span data-i18n="scaleX">缩放 X</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseScaleX" data-step-dir="-1">&lsaquo;</button><input id="baseScaleX" type="number" step="0.001" readonly /><button type="button" class="numberStep" data-step-target="baseScaleX" data-step-dir="1">&rsaquo;</button></span></label>
-            <label class="number stepNumber"><span data-i18n="scaleY">缩放 Y</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseScaleY" data-step-dir="-1">&lsaquo;</button><input id="baseScaleY" type="number" step="0.001" readonly /><button type="button" class="numberStep" data-step-target="baseScaleY" data-step-dir="1">&rsaquo;</button></span></label>
-            <label class="number stepNumber"><span data-i18n="offsetX">偏移 X</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseX" data-step-dir="-1">&lsaquo;</button><input id="baseX" type="number" step="1" readonly /><button type="button" class="numberStep" data-step-target="baseX" data-step-dir="1">&rsaquo;</button></span></label>
-            <label class="number stepNumber"><span data-i18n="offsetY">偏移 Y</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseY" data-step-dir="-1">&lsaquo;</button><input id="baseY" type="number" step="1" readonly /><button type="button" class="numberStep" data-step-target="baseY" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="scale">缩放</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseScale" data-step-dir="-1">&lsaquo;</button><input id="baseScale" type="number" step="0.001" /><button type="button" class="numberStep" data-step-target="baseScale" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="rotate">旋转</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseRotation" data-step-dir="-1">&lsaquo;</button><input id="baseRotation" type="number" step="1" /><button type="button" class="numberStep" data-step-target="baseRotation" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="scaleX">缩放 X</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseScaleX" data-step-dir="-1">&lsaquo;</button><input id="baseScaleX" type="number" step="0.001" /><button type="button" class="numberStep" data-step-target="baseScaleX" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="scaleY">缩放 Y</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseScaleY" data-step-dir="-1">&lsaquo;</button><input id="baseScaleY" type="number" step="0.001" /><button type="button" class="numberStep" data-step-target="baseScaleY" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="offsetX">偏移 X</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseX" data-step-dir="-1">&lsaquo;</button><input id="baseX" type="number" step="1" /><button type="button" class="numberStep" data-step-target="baseX" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="offsetY">偏移 Y</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseY" data-step-dir="-1">&lsaquo;</button><input id="baseY" type="number" step="1" /><button type="button" class="numberStep" data-step-target="baseY" data-step-dir="1">&rsaquo;</button></span></label>
           </div>
           <button id="applyBaseToFrame" class="secondary" data-i18n="copyBaseToSelected" hidden>复制 Base 到选中帧</button>
           <input id="characterBaseScale" type="hidden" readonly />
@@ -301,7 +302,8 @@
         <div class="toolbar">
           <div class="toolbarMain">
             <strong id="canvasTitle" data-i18n="canvas">画布</strong>
-            <span id="hint" data-i18n="hint">拖动画布可平移。选中附加帧：拖动移动，按住 R 滚轮旋转，按住 Z 滚轮缩放。</span>
+            <select id="canvasTransformTool" aria-label="画布工具"><option value="pan" data-workbench-i18n="canvasBrowse">浏览</option><option value="move" data-workbench-i18n="canvasMove">移动</option><option value="scale" data-workbench-i18n="canvasScale">缩放</option><option value="rotate" data-workbench-i18n="canvasRotate">旋转</option></select>
+            <span id="hint" data-workbench-i18n="canvasTransformHint">选工具后拖动画布；缩放、旋转时左右拖动。中键平移视图；浏览模式保留框体和挂件编辑。</span>
 
           </div>
           <div class="toolbarActions">

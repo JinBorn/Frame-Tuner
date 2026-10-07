@@ -7230,10 +7230,7 @@ for (const [mode, input] of [
     }
   });
 }
-els.baseScale.addEventListener("input", () => {
-  syncBaseAxisScaleToUniform();
-  updateAdjustmentFromInputs(els.baseScale);
-});
+
 
 document.querySelectorAll(".numberStep").forEach((button) => {
   button.addEventListener("click", (event) => {
@@ -7245,62 +7242,37 @@ document.querySelectorAll(".numberStep").forEach((button) => {
 });
 
 for (const input of adjustmentNumberInputs()) {
-  armInputUndo(input, "base input");
   input.addEventListener("focus", () => {
-    if (selectedFrameAttachment()) {
-      baseEditSnapshot = null;
-      boxEditSnapshot = null;
-      return;
-    }
-    boxEditSnapshot = createBoxEditSnapshot(adjustmentMode);
-    if (adjustmentMode === "group") {
-      baseEditSnapshot = {
-        groupUiId: currentGroup?.uiId,
-        base: structuredClone(baseTransform()),
-        overrides: structuredClone(overrideStore()),
-      };
-    }
-  });
-  input.addEventListener("blur", () => {
-    baseEditSnapshot = null;
-    boxEditSnapshot = null;
+    input.dataset.startValue = input.value;
+    playing = false;
+    if (els.playPause) els.playPause.textContent = t("play");
+    beginStepAdjustmentEdit();
   });
   input.addEventListener("change", () => {
-    baseEditSnapshot = null;
-    boxEditSnapshot = null;
+    const raw = input.value.trim();
+    const value = Number(raw);
+    if (raw && Number.isFinite(value) && value !== Number(input.dataset.startValue)) {
+      pushUndo("transform input");
+      if (input === els.baseScale) syncBaseAxisScaleToUniform();
+      updateAdjustmentFromInputs(input);
+    }
+    syncAdjustmentInputs();
+    endStepAdjustmentEdit();
+  });
+  input.addEventListener("blur", () => {
+    syncAdjustmentInputs();
+    endStepAdjustmentEdit();
   });
   input.addEventListener("keydown", (event) => {
-    if (event.ctrlKey || event.metaKey) return;
-    if ((input === els.baseX || input === els.baseY) && stepOffsetByArrowKey(event.key, event.shiftKey ? 10 : 1)) {
+    if (event.key === "Enter") { event.preventDefault(); input.blur(); }
+    else if (event.key === "Escape") { event.preventDefault(); syncAdjustmentInputs(); input.blur(); }
+    else if (!event.ctrlKey && !event.metaKey && ["ArrowUp", "ArrowDown"].includes(event.key)) {
       event.preventDefault();
-      return;
+      input.blur();
+      stepAdjustmentInput(input, event.key === "ArrowUp" ? 1 : -1, event.shiftKey ? 10 : 1);
+      input.focus();
     }
-    if (event.key === "ArrowUp" || event.key === "ArrowRight") {
-      event.preventDefault();
-      stepAdjustmentInput(input, 1, event.shiftKey ? 10 : 1);
-      return;
-    }
-    if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
-      event.preventDefault();
-      stepAdjustmentInput(input, -1, event.shiftKey ? 10 : 1);
-      return;
-    }
-    if (event.key === "PageUp") {
-      event.preventDefault();
-      stepAdjustmentInput(input, 1, 10);
-      return;
-    }
-    if (event.key === "PageDown") {
-      event.preventDefault();
-      stepAdjustmentInput(input, -1, 10);
-      return;
-    }
-    if (["Tab", "Escape", "Enter"].includes(event.key)) return;
-    event.preventDefault();
   });
-  input.addEventListener("paste", (event) => event.preventDefault());
-  input.addEventListener("drop", (event) => event.preventDefault());
-  if (input !== els.baseScale) input.addEventListener("input", () => updateAdjustmentFromInputs(input));
 }
 
 els.showBoxes.addEventListener("change", () => {
@@ -7483,6 +7455,26 @@ els.stage.addEventListener("pointerdown", (event) => {
     els.stage.classList.add("dragging");
     drag = nextDrag;
   };
+  if (event.button === 1) {
+    event.preventDefault();
+    beginDrag({ mode: "pan", x: event.clientX, y: event.clientY, viewX: view.x, viewY: view.y });
+    return;
+  }
+  const tool = document.getElementById("canvasTransformTool").value;
+  if (event.button === 0 && tool !== "pan") {
+    if (!currentGroup || selectionLoading || projectOperationInFlight || saveInFlight || portableExportBusy() || !canEditAdjustmentMode(adjustmentMode)) return;
+    playing = false;
+    if (els.playPause) els.playPause.textContent = t("play");
+    event.preventDefault();
+    pushUndo("canvas transform");
+    beginStepAdjustmentEdit();
+    beginDrag({ mode: "transform", tool, x: event.clientX, y: event.clientY,
+      transform: structuredClone(adjustmentTransform()),
+      frames: selectedFrameIndexes().map(index => ({ index, transform: structuredClone(frameTransform(index)), runtime: runtimeBaseScaleForGroup(index) })),
+      runtime: runtimeBaseScaleForGroup(selectedFrame), facing: effectiveFlipH(currentGroup) ? -1 : 1,
+    });
+    return;
+  }
   if (attackTrailEditor?.pointerDown(event)) {
     els.stage.setPointerCapture(event.pointerId);
     els.stage.classList.add("dragging");
@@ -7540,6 +7532,33 @@ els.stage.addEventListener("pointerdown", (event) => {
 
 els.stage.addEventListener("pointermove", (event) => {
   pointerStagePoint = stagePoint(event);
+  if (drag?.mode === "transform") {
+    const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+    const attachment = selectedFrameAttachment();
+    const apply = (before, runtime) => {
+      const next = structuredClone(before);
+      if (drag.tool === "move") {
+        const delta = attachment ? attachmentOffsetDeltaFromClientDelta(dx, dy, attachment)
+          : { x: dx / (view.zoom * Math.max(0.0001, Math.abs(runtime))) * drag.facing, y: dy / (view.zoom * Math.max(0.0001, Math.abs(runtime))) };
+        next.offset = { x: before.offset.x + delta.x, y: before.offset.y + delta.y };
+      } else if (drag.tool === "scale") {
+        const ratio = Math.exp(Math.max(-6, Math.min(6, dx / 150)));
+        next.scale = before.scale * ratio;
+        next.scaleX = before.scaleX * ratio;
+        next.scaleY = before.scaleY * ratio;
+      } else next.rotation = Number(before.rotation || 0) + dx * drag.facing;
+      return next;
+    };
+    if (attachment) updateSelectedFromInputs(apply(drag.transform, drag.runtime));
+    else if (adjustmentMode === "frame") {
+      for (const entry of drag.frames) setFrameTransform(entry.index, apply(entry.transform, entry.runtime));
+      renderFilmstrip();
+    } else if (adjustmentMode === "character") updateCharacterFromInputs(apply(drag.transform, drag.runtime));
+    else updateBaseFromInputs(apply(drag.transform, drag.runtime));
+    syncAdjustmentInputs();
+    draw();
+    return;
+  }
   if (attackTrailEditor?.pointerMove(event)) {
     updateCoordHud();
     return;
@@ -7659,6 +7678,7 @@ els.stage.addEventListener("pointermove", (event) => {
 });
 
 els.stage.addEventListener("pointerup", () => {
+  if (drag?.mode === "transform") endStepAdjustmentEdit();
   attackTrailEditor?.pointerUp();
   drag = null;
   els.stage.classList.remove("dragging");
@@ -7666,6 +7686,7 @@ els.stage.addEventListener("pointerup", () => {
 });
 
 els.stage.addEventListener("pointercancel", () => {
+  if (drag?.mode === "transform") endStepAdjustmentEdit();
   attackTrailEditor?.pointerUp();
   drag = null;
   pointerStagePoint = null;
@@ -7674,6 +7695,7 @@ els.stage.addEventListener("pointercancel", () => {
 });
 
 els.stage.addEventListener("lostpointercapture", () => {
+  if (drag?.mode === "transform") endStepAdjustmentEdit();
   attackTrailEditor?.pointerUp();
   drag = null;
   els.stage.classList.remove("dragging");
@@ -7702,6 +7724,7 @@ window.addEventListener("keydown", (event) => {
   if (command && ["c", "v"].includes(event.key.toLowerCase()) && isTypingTarget(event)) return;
   if (command && event.key.toLowerCase() === "s") {
     event.preventDefault();
+    if (adjustmentNumberInputs().includes(document.activeElement)) document.activeElement.blur();
     save().catch((error) => status(t("saveFailed", { message: error.message })));
     return;
   }
