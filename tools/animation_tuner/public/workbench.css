@@ -142,8 +142,14 @@ button.save:hover { background: var(--accent-dark); }
 .characterGroupGrid { display: block; margin: 0 0 10px; }
 .characterGroupGrid .field { margin-bottom: 10px; }
 .groupSelectorField { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.animationListHeading { display: flex; align-items: center; justify-content: space-between; padding: 10px 2px 8px; font-size: 10px; color: var(--muted); }
-#workbenchAnimationCount { font: 10px var(--data-font); }
+.animationListHeading { display: flex; align-items: center; gap: 7px; height: 36px; padding: 4px 2px; font-size: 10px; color: var(--muted); }
+.animationListHeading > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#workbenchAnimationCount { margin-left: auto; flex-shrink: 0; font: 10px var(--data-font); }
+.animationListActions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
+.animationAction { display: inline-flex; align-items: center; justify-content: center; width: 25px; min-height: 25px; padding: 4px; border-color: transparent; background: transparent; color: var(--muted); }
+.animationAction:hover { background: var(--panel-2); border-color: var(--line); color: var(--ink); }
+.animationRemoveAction:hover { color: var(--danger); }
+.animationAction svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .animationList { display: grid; gap: 4px; align-content: start; }
 .animationListGroup { margin: 11px 8px 3px; color: var(--muted); font-size: 10px; }
 .animationListButton { width: 100%; display: flex; align-items: center; gap: 9px; min-height: 37px; padding: 7px 9px; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 5px; color: var(--muted); font-size: 12px; }
@@ -304,6 +310,7 @@ button.save:hover { background: var(--accent-dark); }
 .dialogClose { width: 28px; height: 28px; min-height: 28px; padding: 0; background: none; border-color: transparent; color: var(--muted); font-size: 22px; }
 .dialogDescription { margin: -7px 0 0; font-size: 12px; line-height: 1.8; }
 .dialogDescription strong { color: var(--ink); font-weight: 500; }
+.animationIdentity { overflow-wrap: anywhere; }
 .workbenchForm .field { margin: 0; }
 .workbenchForm .field input { min-width: 0; width: 100%; min-height: 37px; }
 .workbenchForm .field input[type="file"] { padding: 8px; font-size: 11px; }

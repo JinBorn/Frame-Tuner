@@ -85,7 +85,13 @@
           <span data-i18n="findGroup">查找组</span>
           <input id="groupSearch" type="search" placeholder="名称、类型、来源" data-i18n-placeholder="groupSearchPlaceholder" autocomplete="off" />
         </label>
-        <div class="animationListHeading"><span data-workbench-i18n="animations">动作</span><span id="workbenchAnimationCount">0</span></div>
+        <div class="animationListHeading">
+          <span data-workbench-i18n="animations">动作</span><span id="workbenchAnimationCount">0</span>
+          <div id="workbenchAnimationActions" class="animationListActions" hidden>
+            <button id="workbenchRenameAnimation" type="button" class="animationAction" title="重命名当前动作" aria-label="重命名当前动作" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 5 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15l-1 5Z"/></svg></button>
+            <button id="workbenchRemoveAnimation" type="button" class="animationAction animationRemoveAction" title="移除当前动作" aria-label="移除当前动作" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg></button>
+          </div>
+        </div>
         <nav id="workbenchAnimationList" class="animationList" aria-label="动画动作"></nav>
         <p id="workbenchListEmpty" class="navigationEmpty" data-workbench-i18n="noAnimations">还没有动画，导入一组序列帧开始创作。</p>
         <div class="navigatorFooter"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4-4 3v8l7 3 7-3V7l-4-3M3 7l7 3 7-3M10 10v8M7 4l3-2 3 2-3 2-3-2Z"/></svg><div><strong data-workbench-i18n="engineNeutral">自由创作，按需导出</strong><span data-workbench-i18n="engineNeutralHint">本地项目 · 可选引擎适配</span></div></div>
@@ -385,6 +391,25 @@
         <p id="workbenchManageError" class="dialogError" role="alert" hidden></p>
         <div class="dialogActions"><button id="workbenchRemoveProject" type="button" class="secondary" data-workbench-i18n="removeProject">从列表移除</button><button type="button" class="secondary" data-close-dialog data-workbench-i18n="cancel">取消</button><button id="workbenchRenameProject" type="submit" class="accentButton" data-workbench-i18n="renameProject">保存名称</button></div>
       </form>
+    </dialog>
+    <dialog id="workbenchAnimationDialog" class="workbenchDialog" aria-labelledby="workbenchAnimationTitle" aria-describedby="workbenchAnimationIdentity workbenchAnimationNameHint">
+      <form id="workbenchAnimationForm" class="workbenchForm">
+        <div class="dialogHeading"><h2 id="workbenchAnimationTitle" data-workbench-i18n="renameAnimation">重命名动作</h2><button type="button" class="dialogClose" data-close-dialog aria-label="关闭">×</button></div>
+        <p id="workbenchAnimationIdentity" class="dialogDescription animationIdentity"></p>
+        <label class="field"><span data-workbench-i18n="animationDisplayName">显示名称</span><input id="workbenchAnimationName" type="text" required maxlength="120" autocomplete="off" aria-describedby="workbenchAnimationNameHint" /></label>
+        <p id="workbenchAnimationNameHint" class="dialogDescription" data-workbench-i18n="animationNameHint">显示名称用于动作列表；导出时使用的动作 ID 和素材路径保持不变。执行前会保存当前编辑。</p>
+        <p id="workbenchAnimationError" class="formError" role="alert" hidden></p>
+        <div class="dialogActions"><button type="button" class="secondary" data-close-dialog data-workbench-i18n="cancel">取消</button><button id="workbenchAnimationRenameSubmit" type="submit" class="accentButton" data-workbench-i18n="renameProject">保存名称</button></div>
+      </form>
+    </dialog>
+    <dialog id="workbenchRemoveAnimationDialog" class="workbenchDialog" aria-labelledby="workbenchRemoveAnimationTitle" aria-describedby="workbenchRemoveAnimationTarget workbenchRemoveAnimationHint">
+      <div class="workbenchForm">
+        <div class="dialogHeading"><h2 id="workbenchRemoveAnimationTitle" data-workbench-i18n="removeAnimation">移除动作</h2><button type="button" class="dialogClose" data-close-dialog aria-label="关闭">×</button></div>
+        <p id="workbenchRemoveAnimationTarget" class="dialogDescription animationIdentity"></p>
+        <p id="workbenchRemoveAnimationHint" class="dialogDescription" data-workbench-i18n="removeAnimationHint">移除该动作及其调参、框体、音效绑定、图片挂件和拖尾配置，保留原始素材文件。执行前会保存当前编辑；此操作立即保存，不能撤销。</p>
+        <p id="workbenchRemoveAnimationError" class="formError" role="alert" hidden></p>
+        <div class="dialogActions"><button id="workbenchRemoveAnimationCancel" type="button" class="secondary" data-close-dialog data-workbench-i18n="cancel" autofocus>取消</button><button id="workbenchRemoveAnimationConfirm" type="button" class="dangerMini" data-workbench-i18n="removeAnimation">移除动作</button></div>
+      </div>
     </dialog>
     <dialog id="workbenchProjectDialog" class="workbenchDialog" aria-labelledby="workbenchProjectTitle">
       <form id="workbenchProjectForm" class="workbenchForm">

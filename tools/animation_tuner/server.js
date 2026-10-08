@@ -1461,6 +1461,13 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, ...projectsResponse() });
     }
     if (req.method === "POST" && parsed.pathname === "/api/workbench/import") return send(res, 200, workbench.importAnimation(JSON.parse(req.workbenchBody)));
+    if (req.method === "POST" && ["/api/workbench/animations/rename", "/api/workbench/animations/remove"].includes(parsed.pathname)) {
+      const payload = JSON.parse(req.workbenchBody);
+      const project = payload.projectId ? availableRegistry().projects.find(entry => entry.id === payload.projectId) : null;
+      if (!project) return send(res, 404, { error: "Project not found.", code: "project_not_found" });
+      if (projectEngine(project) !== "lite") return send(res, 400, { error: "Animation management requires an independent workspace.", code: "project_not_neutral" });
+      return neutralApp.requestHandler(req, res);
+    }
     if (req.method === "POST" && parsed.pathname === "/api/workbench/export") {
       const payload = JSON.parse(req.workbenchBody);
       const result = await require("../export_package").buildExportPackage(payload, { projectData: workbench.projectData(payload.projectId), root: ROOT });

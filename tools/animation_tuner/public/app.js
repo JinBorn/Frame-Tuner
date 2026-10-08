@@ -561,6 +561,7 @@ let activeImageResources = [];
 let imageAssetVersion = String(Date.now());
 let preloadGeneration = 0;
 let projectOperationInFlight = false;
+let workbenchReloadRequired = false;
 let frameSequenceOperationInFlight = false;
 let configLoadGeneration = 0;
 let selectionLoading = false;
@@ -851,7 +852,7 @@ function updateSaveState() {
         : t("noChanges");
   els.saveState.textContent = label;
   els.saveState.classList.toggle("dirty", dirty);
-  els.save.disabled = saving;
+  els.save.disabled = saving || workbenchReloadRequired;
   els.save.textContent = saving ? t("saving") : dirty ? t("saveTuningDirty") : t("saveTuning");
   document.body.classList.toggle("hasUnsavedChanges", dirty);
   renderTunerUpdateStatus();
@@ -2086,13 +2087,20 @@ async function loadConfig(options = {}) {
   updateHistoryControls();
   const savedGroupUiId = localStorage.getItem("animationTuner.groupUiId");
   const requestedGroup = PAGE_PARAMS.get("group");
-  const initialGroup = config.groups.find((group) => requestedGroup && group.name === requestedGroup && (!PAGE_PARAMS.get("profile") || group.profileId === PAGE_PARAMS.get("profile")))
+  const preferredGroup = options.selection && config.groups.find((group) => group.profileId === options.selection.profileId && unityBakeAnimationId(group) === options.selection.animationId);
+  const initialGroup = preferredGroup
+    || config.groups.find((group) => requestedGroup && group.name === requestedGroup && (!PAGE_PARAMS.get("profile") || group.profileId === PAGE_PARAMS.get("profile")))
     || config.groups.find((group) => group.uiId === savedGroupUiId)
     || config.groups.find((group) => group.name === "stand_attack")
     || config.groups[0];
   if (initialGroup) {
-    const requestedFrame = clampInteger(Number(PAGE_PARAMS.get("frame") || 1) - 1, 0, Math.max(0, initialGroup.frames.length - 1));
-    await selectGroup(initialGroup, { frameIndex: requestedFrame, throwOnError: true });
+    if (preferredGroup && groupSearch && !filteredGroups().includes(preferredGroup)) {
+      groupSearch = "";
+      els.groupSearch.value = "";
+      localStorage.setItem("animationTuner.groupSearch", "");
+    }
+    const requestedFrame = clampInteger(preferredGroup ? Number(options.selection.frameIndex || 0) : Number(PAGE_PARAMS.get("frame") || 1) - 1, 0, Math.max(0, initialGroup.frames.length - 1));
+    await selectGroup(initialGroup, { frameIndex: requestedFrame, throwOnError: true, preserveView: options.preserveView });
     if (ticket !== configLoadGeneration) return false;
     if (PAGE_PARAMS.get("attackTrail") === "1" && config.projectKind !== "codex_pets") {
       attackTrailEditor.enabled = true;
@@ -2115,6 +2123,8 @@ async function loadConfig(options = {}) {
   }
   status(loadedStatusText());
   startPreloadImages();
+  workbenchReloadRequired = false;
+  updateSaveState();
   window.dispatchEvent(new CustomEvent("xsxb-frame-tuner-config", { detail: { projectKind: config.projectKind, projectId: config.activeProjectId } }));
   return true;
 }
@@ -2236,9 +2246,10 @@ async function loadChainImages() {
 
 function findRelatedGroup(ownerGroup, name) {
   if (!ownerGroup || !name) return null;
-  return config?.groups?.find((group) => group.tuningTarget === ownerGroup.tuningTarget
-    && group.name === name
-    && (config?.projectKind !== "frame_lite" || group.profileId === ownerGroup.profileId)) || null;
+  if (config?.projectKind !== "frame_lite") return config?.groups?.find((group) => group.tuningTarget === ownerGroup.tuningTarget && group.name === name) || null;
+  const matches = config.groups.filter((group) => group.tuningTarget === ownerGroup.tuningTarget
+    && group.profileId === ownerGroup.profileId && (group.name === name || group.animationId === name));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function attachedLayerGroups(ownerGroup) {
@@ -2885,7 +2896,7 @@ function rawGroupPlaybackFps(group = currentGroup) {
 
 function attachedPlaybackOwnerGroup(group = currentGroup) {
   if (!group || group.type !== "vfx" || !group.attachTo) return null;
-  return config?.groups?.find((entry) => entry.tuningTarget === group.tuningTarget && entry.name === group.attachTo) || null;
+  return findRelatedGroup(group, group.attachTo);
 }
 
 function usesAttachedPlaybackTiming(group = currentGroup) {
@@ -6871,6 +6882,7 @@ async function syncUnityBakedFramesNow() {
 }
 
 async function save() {
+  if (workbenchReloadRequired) throw new Error(language === "en" ? "The animation change was saved. Refresh the animation list before editing again." : "动作操作已保存，请先刷新动画列表再继续编辑。");
   if (saveInFlight || frameAssetOperationPending() || projectOperationInFlight || portableExportBusy() || !config) return;
   saveInFlight = true;
   updateSaveState();
@@ -8167,7 +8179,8 @@ attackTrailEditor = new window.AttackTrailEditor({
 });
 window.XsxbFrameTunerLite = {
   current: () => ({
-    ready: Boolean(currentGroup) && !selectionLoading,
+    ready: Boolean(currentGroup) && !selectionLoading && !workbenchReloadRequired,
+    reloadRequired: workbenchReloadRequired,
     projectId: config?.activeProjectId || "",
     projectKind: config?.projectKind || "frame_lite",
     engine: config?.projectEngine || "none",
@@ -8217,6 +8230,80 @@ window.XsxbFrameTunerLite = {
   },
 };
 window.XsxbFrameTunerLite.groups = () => window.XsxbFrameTunerLite.exportGroups({ allProfiles: true });
+async function manageWorkbenchAnimation(action, payload = {}) {
+  if (!["rename", "remove"].includes(action) || payload.projectId !== activeProjectId()) throw new Error(language === "en" ? "Project selection changed." : "项目选择已变化，请重新打开动作管理。");
+  if (config?.projectKind !== "frame_lite") throw new Error(language === "en" ? "Animation management is available for independent projects." : "动作管理仅用于独立项目。");
+  if (saveInFlight || frameAssetOperationPending() || selectionLoading || projectOperationInFlight || portableExportBusy()) throw new Error(language === "en" ? "Please wait for the current operation." : "请等待当前操作完成。");
+  const group = config.groups.find((entry) => entry.profileId === payload.profileId && unityBakeAnimationId(entry) === payload.animationId);
+  if (!group) throw new Error(language === "en" ? "Animation not found. Refresh the list." : "动作已不存在，请刷新列表。");
+  const sourceConfig = config;
+  let nextGroup = currentGroup || group;
+  if (action === "remove" && nextGroup === group) {
+    const siblings = config.groups.filter((entry) => entry.profileId === group.profileId);
+    const index = siblings.indexOf(group);
+    nextGroup = siblings[index + 1] || siblings[index - 1] || config.groups.find((entry) => entry !== group);
+  }
+  const selection = nextGroup ? {
+    profileId: nextGroup.profileId,
+    animationId: unityBakeAnimationId(nextGroup),
+    frameIndex: nextGroup === currentGroup ? selectedFrame : 0,
+  } : null;
+  const app = document.querySelector("main.app");
+  const wasInert = app?.inert;
+  let locked = false;
+  if (app) app.inert = true;
+  window.XsxbFrameTunerLite.stopPlayback();
+  try {
+    if (dirty) await save();
+    if (dirty) throw new Error(language === "en" ? "New edits were made while saving. Save them before managing this animation." : "保存期间产生了新编辑，请先保存后再管理动作。");
+    if (config !== sourceConfig || payload.projectId !== activeProjectId()) throw new Error(language === "en" ? "Project selection changed." : "项目选择已变化，请重新打开动作管理。");
+    projectOperationInFlight = true;
+    locked = true;
+    window.dispatchEvent(new CustomEvent("frame-tuner-workbench-state"));
+    const response = await fetch(`/api/workbench/animations/${action}`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: payload.projectId, profileId: payload.profileId, animationId: payload.animationId, ...(action === "rename" ? { name: payload.name } : {}), configRevision: config.configRevision || "" }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      const error = new Error(result.code === "stale_config" ? t("staleSaveBlocked") : result.error || (language === "en" ? "Animation management failed." : "动作管理失败。"));
+      error.code = result.code;
+      error.dependencies = result.dependencies;
+      throw error;
+    }
+    try {
+      if (!selection) {
+        groupSearch = "";
+        els.groupSearch.value = "";
+        localStorage.setItem("animationTuner.groupSearch", "");
+      }
+      const reloaded = await loadConfig({ projectId: payload.projectId, resetSession: true, selection, preserveView: true });
+      if (!reloaded) throw new Error(language === "en" ? "The configuration reload was interrupted." : "配置加载被中断。");
+      resizeCanvas();
+      return { ...result, reloaded: true };
+    } catch (error) {
+      // The mutation succeeded. Preserve its success even if fetching the new
+      // configuration fails. Stale groups must not remain editable/exportable.
+      workbenchReloadRequired = true;
+      resetProjectSession();
+      config.groups = [];
+      renderProfileSelect();
+      renderGroupSelect();
+      renderChainGroupSelect();
+      updateWorkbenchHud(null);
+      attackTrailEditor?.contextChanged();
+      draw();
+      return { ...result, reloaded: false, reloadError: error.message };
+    }
+  } finally {
+    if (locked) projectOperationInFlight = false;
+    if (app) app.inert = wasInert;
+    renderProjectSelect();
+    updateSaveState();
+    window.dispatchEvent(new CustomEvent("frame-tuner-workbench-state"));
+  }
+}
+
 async function manageWorkbenchProject(action, payload) {
   if (!["rename", "remove"].includes(action) || payload.projectId !== activeProjectId()) throw new Error("Project selection changed.");
   if (saveInFlight || frameAssetOperationPending() || selectionLoading || projectOperationInFlight || portableExportBusy()) throw new Error(language === "en" ? "Please wait for the current operation." : "请等待当前操作完成。");
@@ -8245,12 +8332,13 @@ async function manageWorkbenchProject(action, payload) {
 }
 window.FrameTunerWorkbench = {
   manageProject: manageWorkbenchProject,
+  manageAnimation: manageWorkbenchAnimation,
   reload: reloadWorkbench,
   confirmDiscard: discardGuard,
   save,
   current: window.XsxbFrameTunerLite.current,
   selectGroup: window.XsxbFrameTunerLite.selectGroup,
-  groups: window.XsxbFrameTunerLite.groups,
+  groups: () => (config?.groups || []).map((group) => ({ groupId: group.uiId, animationId: unityBakeAnimationId(group), profileId: group.profileId || "", name: group.name, frameCount: group.frames?.length || 0 })),
   projects: () => structuredClone(config?.projects || []),
   cacheStats: () => imageCache.stats(),
 };

@@ -637,6 +637,17 @@ const requestHandler = async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/workbench/capabilities") return send(res, 200, workbench.capabilities());
     if (req.method === "POST" && url.pathname === "/api/workbench/projects") return send(res, 201, workbench.createProject(JSON.parse(await readBody(req))));
     if (req.method === "POST" && url.pathname === "/api/workbench/import") return send(res, 200, workbench.importAnimation(JSON.parse(await readBody(req))));
+    if (req.method === "POST" && ["/api/workbench/animations/rename", "/api/workbench/animations/remove"].includes(url.pathname)) {
+      const payload = JSON.parse(await readBody(req));
+      const project = payload.projectId ? store.resolveProject(payload.projectId) : null;
+      if (!project) return send(res, 404, { error: "Lite project not found.", code: "project_not_found" });
+      const currentRevision = projectConfigRevision(project);
+      if (String(payload.configRevision || "") !== currentRevision) return send(res, 409, {
+        error: "服务器数据已更新，请刷新后再管理动作。", code: "stale_config", configRevision: currentRevision,
+      });
+      const result = url.pathname.endsWith("/rename") ? workbench.renameAnimation(payload) : workbench.removeAnimation(payload);
+      return send(res, 200, { ...result, configRevision: projectConfigRevision(project) });
+    }
     if (req.method === "POST" && url.pathname === "/api/workbench/export") {
       const payload = JSON.parse(await readBody(req));
       const result = await require("../export_package").buildExportPackage(payload, { projectData: workbench.projectData(payload.projectId), root: ROOT });
@@ -790,7 +801,9 @@ const requestHandler = async (req, res) => {
   } catch (error) {
     if (!error.status || error.status >= 500) console.error(error.message || error);
     if (error.status === 413) res.setHeader("connection", "close");
-    return send(res, error.status || (error instanceof SyntaxError ? 400 : 500), { error: String(error.message || error), code: error.code || "request_failed" });
+    return send(res, error.status || (error instanceof SyntaxError ? 400 : 500), { error: String(error.message || error), code: error.code || "request_failed",
+      ...(error.code === "animation_in_use" && Array.isArray(error.dependencies) ? { dependencies: error.dependencies.map(String) } : {}),
+    });
   }
 };
 const server = http.createServer(requestHandler);

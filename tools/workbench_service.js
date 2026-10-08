@@ -274,6 +274,9 @@ function createWorkbenchService(options = {}) {
     if (!Array.isArray(manifest.profiles)) fail("Project manifest has no profiles array.", "invalid_project_json");
     let profile = manifest.profiles.find((entry) => entry.id === profileId);
     const existing = profile?.animations?.findIndex((entry) => entry.id === animationId) ?? -1;
+    if (existing < 0 && profile?.animations?.some(entry => String(entry.name || entry.id) === animationId)) {
+      fail(`Animation name conflicts with an existing display name: ${animationId}`, "animation_name_conflict", 409);
+    }
     if (existing >= 0 && payload.replace !== true) fail(`Animation ${profileId}/${animationId} already exists. Choose another name or explicitly replace it.`, "animation_exists", 409);
     if (!Array.isArray(payload.files) || !payload.files.length || payload.files.length > 4096) fail("Select between 1 and 4096 PNG files.");
     const images = payload.files.map(pngBuffer).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -343,7 +346,89 @@ function createWorkbenchService(options = {}) {
     commitImportFiles(writes);
     return { ok: true, projectId: data.project.id, profileId, animationId, frameCount: frames.length, audioCount: importedAudio.events.length, fps, replaced: existing >= 0 };
   }
-  return { root, store, capabilities: getCapabilities, createProject, importAnimation, resolveProject, projectData, listProjects: () => store.readRegistry().projects.map(store.projectForClient) };
+  function animationForManagement(payload) {
+    if (!payload.projectId) fail("An explicit project is required.", "project_not_found", 404);
+    const data = projectData(payload.projectId);
+    if (projectEngine(data.project) !== "lite") fail("Animation management requires an independent workspace.", "project_not_neutral");
+    const profile = data.manifest.profiles.find(entry => entry.id === payload.profileId);
+    const animation = profile?.animations?.find(entry => entry.id === payload.animationId);
+    if (!animation) fail(`Animation not found: ${payload.profileId}/${payload.animationId}`, "animation_not_found", 404);
+    return { data, profile, animation };
+  }
+  function displayName(animation) { return String(animation.name || animation.id); }
+  function referenceTargets(profile, reference, animation) {
+    if (typeof reference !== "string" || !reference) return false;
+    const matches = profile.animations.filter(entry => entry.id === reference || displayName(entry) === reference);
+    if (matches.includes(animation) && matches.length > 1) {
+      fail(`Ambiguous animation reference "${reference}" in ${profile.id}; resolve the conflicting name and ID first.`, "ambiguous_animation_reference", 409);
+    }
+    return matches.length === 1 && matches[0] === animation;
+  }
+  function renameAnimation(payload = {}) {
+    const { data, profile, animation } = animationForManagement(payload);
+    if (typeof payload.name !== "string" || !payload.name.trim() || payload.name.trim().length > 120 || /[\u0000-\u001f\u007f]/.test(payload.name)) {
+      fail("Animation name must contain 1–120 characters without control characters.", "invalid_animation_name");
+    }
+    const name = payload.name.trim(), previousName = displayName(animation);
+    if (profile.animations.some(entry => entry !== animation && (displayName(entry) === name || entry.id === name))) {
+      fail(`Animation name already exists or conflicts with another animation ID: ${name}`, "animation_name_conflict", 409);
+    }
+    for (const entry of profile.animations) {
+      for (const field of ["previewOwner", "attachTo"]) {
+        if (referenceTargets(profile, entry[field], animation) && entry[field] === previousName) entry[field] = name;
+      }
+      if (Array.isArray(entry.attachedLayers)) entry.attachedLayers = entry.attachedLayers.map(reference =>
+        referenceTargets(profile, reference, animation) && reference === previousName ? name : reference);
+    }
+    animation.name = name;
+    commitImportFiles([[data.paths.manifest, `${JSON.stringify(data.manifest, null, 2)}\n`]]);
+    return { ok: true, projectId: data.project.id, profileId: profile.id, animationId: animation.id, name };
+  }
+  function removeAnimation(payload = {}) {
+    const { data, profile, animation } = animationForManagement(payload);
+    const dependencies = [];
+    for (const entry of profile.animations) {
+      if (entry === animation) continue;
+      for (const field of ["previewOwner", "attachTo"]) {
+        if (referenceTargets(profile, entry[field], animation)) dependencies.push(`${profile.id}/${entry.id} (${field})`);
+      }
+    }
+    if (dependencies.length) throw Object.assign(new Error(`Animation is used by: ${dependencies.join(", ")}. Remove or change these dependencies first.`), {
+      code: "animation_in_use", status: 409, dependencies,
+    });
+    for (const entry of profile.animations) {
+      if (entry !== animation && Array.isArray(entry.attachedLayers)) entry.attachedLayers = entry.attachedLayers.filter(reference => !referenceTargets(profile, reference, animation));
+    }
+    // Dot-containing profile and animation IDs require ownership by the longest
+    // existing prefix. A short ID must not erase another action or profile.
+    const owners = data.manifest.profiles.flatMap(entry => [
+      { prefix: `profiles.${entry.id}.`, profileId: entry.id },
+      ...(entry.animations || []).map(action => ({ prefix: `profiles.${entry.id}.groups.${action.id}.`, profileId: entry.id, animationId: action.id })),
+    ]).sort((a, b) => b.prefix.length - a.prefix.length);
+    data.tuning.values = Object.fromEntries(Object.entries(data.tuning.values || {}).filter(([key]) => {
+      const owner = owners.find(candidate => key.startsWith(candidate.prefix));
+      if (owner?.profileId !== profile.id || owner?.animationId !== animation.id) return true;
+      // Equal prefixes can represent a dotted profile ID as well as an action.
+      // Preserve ambiguous values rather than deleting another owner's data.
+      return owners.some(candidate => candidate.prefix === owner.prefix
+        && (candidate.profileId !== profile.id || candidate.animationId !== animation.id));
+    }));
+    const prefix = `${profile.id}/${animation.id}:`;
+    for (const field of ["frame_visual_overrides", "frame_playback_overrides", "frame_box_overrides", "attack_vfx_frame_overrides", "attack_vfx_playback_overrides"]) {
+      data.tuning[field] = Object.fromEntries(Object.entries(data.tuning[field] || {}).filter(([key]) => !key.startsWith(prefix)));
+    }
+    const belongs = entry => bindingTargetsAnimation(entry, data.project.id, profile.id, animation.id);
+    const audio = Array.isArray(data.frameAudioBindings) ? data.frameAudioBindings.filter(entry => !belongs(entry))
+      : Object.fromEntries(Object.entries(data.frameAudioBindings).filter(([key, entry]) => !belongs({ ...entry, key })));
+    const attachments = data.frameImageAttachments.filter(entry => !belongs(entry));
+    delete data.attackTrails.bindings?.[`${profile.id}/${animation.id}`];
+    profile.animations = profile.animations.filter(entry => entry !== animation);
+    const writes = [[data.paths.manifest, data.manifest], [data.paths.tuning, data.tuning],
+      [data.paths.frameAudio, audio], [data.paths.frameImageAttachments, attachments], [data.paths.attackTrails, data.attackTrails]];
+    commitImportFiles(writes.map(([file, value]) => [file, `${JSON.stringify(value, null, 2)}\n`]));
+    return { ok: true, projectId: data.project.id, profileId: profile.id, animationId: animation.id, removed: true, remainingAnimations: profile.animations.length };
+  }
+  return { root, store, capabilities: getCapabilities, createProject, importAnimation, renameAnimation, removeAnimation, resolveProject, projectData, listProjects: () => store.readRegistry().projects.map(store.projectForClient) };
 }
 
 module.exports = { createWorkbenchService, pngBuffer, sheetFrames, sheetOrigin, prepareSheetAudio, resolveWorkbenchAsset, commitImportFiles };

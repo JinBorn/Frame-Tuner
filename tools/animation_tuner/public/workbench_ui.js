@@ -8,12 +8,19 @@
   const projectDialog = byId("workbenchProjectDialog");
   const importDialog = byId("workbenchImportDialog");
   const manageDialog = byId("workbenchManageDialog");
+  const animationDialog = byId("workbenchAnimationDialog");
+  const removeAnimationDialog = byId("workbenchRemoveAnimationDialog");
   const replaceDialog = byId("workbenchReplaceDialog");
   const state = { files: [], busy: false, featureBusy: false, ready: false, projectKind: "", capabilities: null, queued: false };
   const translations = {
     zh: {
       canvasTransformHint: "选工具后拖动画布；缩放、旋转时左右拖动。中键平移视图；浏览模式保留框体和挂件编辑。", canvasBrowse: "浏览", canvasMove: "移动", canvasScale: "缩放", canvasRotate: "旋转", previewSmooth: "平滑预览", previewPixel: "像素预览", numericTransformHint: "输入数值后按 Enter 或移开焦点应用；Esc 取消输入。",
       manageProject: "管理项目", renameProject: "保存名称", removeProject: "从列表移除", removeProjectHint: "移除只影响项目列表，本地素材和调参文件仍保留。重新新建同名项目不会恢复这些数据。", removeConfirm: "从列表移除项目「{name}」？本地素材和调参文件将保留。", renamed: "项目名称已更新。", removed: "项目已从列表移除，本地文件已保留。",
+      renameAnimation: "重命名动作", removeAnimation: "移除动作", renameCurrentAnimation: "重命名当前动作：{name}", removeCurrentAnimation: "移除当前动作：{name}", animationDisplayName: "显示名称",
+      animationIdentity: "角色：{profile} · 动作 ID：{animation}", animationNameHint: "显示名称用于动作列表；导出时使用的动作 ID 和素材路径保持不变。执行前会保存当前编辑。",
+      removeAnimationTarget: "移除角色「{profile}」的动作「{name}」（{count} 帧）？", removeAnimationHint: "移除该动作及其调参、框体、音效绑定、图片挂件和拖尾配置，保留原始素材文件。执行前会保存当前编辑；此操作立即保存，不能撤销。",
+      emptyAnimationName: "请输入动作显示名称。", animationRenamed: "动作名称已更新。", animationRemoved: "动作已移除，原始素材文件已保留。", animationReloadFailed: "操作已保存，但动作列表加载失败，请刷新页面：{message}",
+      invalid_animation_name: "显示名称需为 1–120 个字符，不能包含控制字符。", animation_name_conflict: "此角色已有相同显示名称或动作 ID，请换一个名称。", animation_in_use: "以下动作仍引用它，请先处理这些动作：{dependencies}。", ambiguous_animation_reference: "动作引用存在重名或 ID 冲突，请先为冲突动作设置不同的显示名称。", animation_not_found: "动作已不存在，请刷新动画列表。",
       newProject: "新建项目", import: "导入素材", assets: "素材库", animationLibrary: "动画资源", animations: "动作",
       noAnimations: "还没有动画，导入一组序列帧开始创作。", noMatches: "没有匹配的动作，试试其他关键词。",
       engineNeutral: "自由创作，按需导出", engineNeutralHint: "本地项目 · 可选引擎适配", inspector: "属性检查器", transform: "变换",
@@ -43,6 +50,11 @@
     en: {
       canvasTransformHint: "Drag to transform; drag horizontally to scale or rotate. Middle-drag pans. Browse keeps box and attachment editing.", canvasBrowse: "Browse", canvasMove: "Move", canvasScale: "Scale", canvasRotate: "Rotate", previewSmooth: "Smooth preview", previewPixel: "Pixel preview", numericTransformHint: "Press Enter or leave the field to apply. Esc cancels typing.",
       manageProject: "Manage project", renameProject: "Save name", removeProject: "Remove from list", removeProjectHint: "Removal only affects the project list. Local assets and settings are kept. Creating a new project with the same name will not restore them.", removeConfirm: "Remove project {name} from the list? Local assets and settings will be kept.", renamed: "Project renamed.", removed: "Project removed from the list. Local files were kept.",
+      renameAnimation: "Rename animation", removeAnimation: "Remove animation", renameCurrentAnimation: "Rename current animation: {name}", removeCurrentAnimation: "Remove current animation: {name}", animationDisplayName: "Display name",
+      animationIdentity: "Character: {profile} · Animation ID: {animation}", animationNameHint: "The display name appears in the animation list. The exported animation ID and asset paths stay the same. Current edits are saved first.",
+      removeAnimationTarget: "Remove “{name}” from character “{profile}” ({count} frames)?", removeAnimationHint: "Remove this animation and its tuning, boxes, audio bindings, image attachments, and trail settings. Original asset files are kept. Current edits are saved first; removal is saved immediately and cannot be undone.",
+      emptyAnimationName: "Enter an animation display name.", animationRenamed: "Animation renamed.", animationRemoved: "Animation removed. Original asset files were kept.", animationReloadFailed: "The change was saved, but the animation list could not reload. Refresh the page: {message}",
+      invalid_animation_name: "Use 1–120 characters without control characters.", animation_name_conflict: "This character already has that display name or animation ID. Choose a different name.", animation_in_use: "These animations still reference it. Resolve them first: {dependencies}.", ambiguous_animation_reference: "An animation reference has conflicting names or IDs. Give the conflicting animations distinct display names first.", animation_not_found: "Animation no longer exists. Refresh the animation list.",
       newProject: "New project", import: "Import assets", assets: "Assets", animationLibrary: "Animation library", animations: "Animations",
       noAnimations: "Import a sequence to start your first animation.", noMatches: "No matching animations. Try another search.",
       engineNeutral: "Create freely. Export anywhere.", engineNeutralHint: "Local project · Optional adapters", inspector: "Inspector", transform: "Transform",
@@ -87,7 +99,7 @@
 
   function showError(id, error) {
     const target = byId(id);
-    target.textContent = error?.code === "animation_exists" ? t("exists") : translations.zh[error?.code] ? t(error.code, { files: error.files?.join("、") || "" }) : String(error?.message || error || "");
+    target.textContent = error?.code === "animation_exists" ? t("exists") : translations.zh[error?.code] ? t(error.code, { files: error.files?.join("、") || "", dependencies: error.dependencies?.join("、") || "" }) : String(error?.message || error || "");
     target.hidden = !target.textContent;
   }
 
@@ -123,12 +135,13 @@
 
   function setBusy(busy, progress = "") {
     state.busy = busy;
-    for (const dialog of [projectDialog, importDialog, manageDialog]) {
+    for (const dialog of [projectDialog, importDialog, manageDialog, animationDialog, removeAnimationDialog]) {
       dialog.setAttribute("aria-busy", String(busy));
       dialog.querySelectorAll("button, input").forEach((element) => { element.disabled = busy; });
     }
     byId("workbenchImportProgress").textContent = progress;
     byId("workbenchProjectSubmit").textContent = busy && projectDialog.open ? t("creating") : t("createProject");
+    scheduleSync();
   }
 
   async function request(url, payload) {
@@ -217,6 +230,63 @@
   }
   byId("workbenchManageForm").addEventListener("submit", (event) => { event.preventDefault(); void manageProject("rename"); });
   byId("workbenchRemoveProject").addEventListener("click", () => { void manageProject("remove"); });
+
+  function animationManagementBusy(current = window.FrameTunerWorkbench?.current?.()) {
+    return state.busy || state.featureBusy || !current?.ready || current.saving || current.loading || current.exporting;
+  }
+
+  function openAnimationDialog(action) {
+    const current = window.FrameTunerWorkbench?.current?.();
+    if (animationManagementBusy(current) || current.projectKind !== "frame_lite" || current.groupId !== groupSelect.value) return;
+    const group = window.FrameTunerWorkbench.groups().find((entry) => entry.groupId === current.groupId);
+    if (!group) return;
+    const dialog = action === "rename" ? animationDialog : removeAnimationDialog;
+    dialog.dataset.projectId = current.projectId;
+    dialog.dataset.profileId = group.profileId;
+    dialog.dataset.animationId = group.animationId;
+    if (action === "rename") {
+      byId("workbenchAnimationName").value = group.name;
+      byId("workbenchAnimationIdentity").textContent = t("animationIdentity", { profile: group.profileId, animation: group.animationId });
+      showError("workbenchAnimationError", "");
+      dialog.showModal();
+      byId("workbenchAnimationName").select();
+    } else {
+      byId("workbenchRemoveAnimationTarget").textContent = t("removeAnimationTarget", { profile: group.profileId, name: group.name, count: group.frameCount });
+      showError("workbenchRemoveAnimationError", "");
+      dialog.showModal();
+      byId("workbenchRemoveAnimationCancel").focus();
+    }
+  }
+
+  async function manageAnimation(action) {
+    if (state.busy) return;
+    const dialog = action === "rename" ? animationDialog : removeAnimationDialog;
+    const errorId = action === "rename" ? "workbenchAnimationError" : "workbenchRemoveAnimationError";
+    const name = byId("workbenchAnimationName").value.trim();
+    if (action === "rename" && !name) { showError(errorId, t("emptyAnimationName")); return; }
+    showError(errorId, "");
+    setBusy(true);
+    try {
+      const result = await window.FrameTunerWorkbench.manageAnimation(action, {
+        projectId: dialog.dataset.projectId,
+        profileId: dialog.dataset.profileId,
+        animationId: dialog.dataset.animationId,
+        ...(action === "rename" ? { name } : {}),
+      });
+      if (!result) return;
+      // A successful write must not leave a button that submits it a second time.
+      dialog.close();
+      notice(result.reloaded === false
+        ? t("animationReloadFailed", { message: result.reloadError })
+        : t(action === "rename" ? "animationRenamed" : "animationRemoved"));
+    } catch (error) { showError(errorId, error); }
+    finally { setBusy(false); }
+  }
+
+  byId("workbenchRenameAnimation").addEventListener("click", () => openAnimationDialog("rename"));
+  byId("workbenchRemoveAnimation").addEventListener("click", () => openAnimationDialog("remove"));
+  byId("workbenchAnimationForm").addEventListener("submit", (event) => { event.preventDefault(); void manageAnimation("rename"); });
+  byId("workbenchRemoveAnimationConfirm").addEventListener("click", () => { void manageAnimation("remove"); });
   byId("workbenchNewProject").addEventListener("click", openProjectDialog);
   byId("canvasTransformTool").addEventListener("click", (event) => {
     const button = event.target.closest("[data-canvas-tool]");
@@ -255,7 +325,7 @@
       syncFeatureSwitch();
     }
   });
-  for (const dialog of [projectDialog, importDialog, manageDialog]) {
+  for (const dialog of [projectDialog, importDialog, manageDialog, animationDialog, removeAnimationDialog]) {
     dialog.addEventListener("cancel", (event) => { if (state.busy) event.preventDefault(); });
     dialog.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => { if (!state.busy) dialog.close(); }));
   }
@@ -406,13 +476,15 @@
         button.type = "button";
         button.className = "animationListButton";
         button.dataset.groupId = option.value;
-        button.disabled = Boolean(window.FrameTunerPortable?.busy?.());
+        const current = window.FrameTunerWorkbench?.current?.();
+        button.disabled = Boolean(state.busy || state.featureBusy || current?.saving || current?.exporting);
         button.setAttribute("aria-current", String(option.value === groupSelect.value));
         button.title = option.textContent;
         button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="3"/><path d="m8 6 5 4-5 4V6Z"/></svg><span class="animationName"></span><span class="animationCount">›</span>';
         button.querySelector(".animationName").textContent = option.textContent;
         button.addEventListener("click", () => {
           if (window.FrameTunerPortable?.busy?.()) { notice(t("exporting")); return; }
+          if (state.busy || state.featureBusy) return;
           if (groupSelect.value === option.value) return;
           groupSelect.value = option.value;
           groupSelect.dispatchEvent(new Event("change", { bubbles: true }));
@@ -436,6 +508,15 @@
     byId("workbenchManageProject").disabled = !hasProject || state.projectKind === "codex_pets";
     const current = window.FrameTunerWorkbench?.current?.();
     if (current?.projectKind) state.projectKind = current.projectKind;
+    byId("workbenchAnimationActions").hidden = !hasProject || state.projectKind !== "frame_lite";
+    const group = window.FrameTunerWorkbench?.groups?.().find((entry) => entry.groupId === current?.groupId);
+    for (const action of ["Rename", "Remove"]) {
+      const button = byId(`workbench${action}Animation`);
+      button.disabled = animationManagementBusy(current) || !group || current?.groupId !== groupSelect.value;
+      const label = t(group ? `${action.toLowerCase()}CurrentAnimation` : `${action.toLowerCase()}Animation`, { name: group?.name });
+      button.title = label;
+      button.setAttribute("aria-label", label);
+    }
     const adapter = state.capabilities?.adapters?.find((entry) => entry.id === state.projectKind);
     document.querySelector('[data-panel="scene-scale"]').hidden = adapter?.scenes === false;
     if (hasProject && state.projectKind === "frame_lite") {
@@ -444,7 +525,7 @@
     }
     const hasFrames = byId("filmstrip").childElementCount > 0;
     byId("canvasTransformTool").querySelectorAll("button").forEach((button) => { button.disabled = !hasFrames; });
-    byId("workbenchEmptyState").hidden = !state.ready || hasFrames;
+    byId("workbenchEmptyState").hidden = !state.ready || hasFrames || current?.reloadRequired === true;
     byId("workbenchEmptyCreate").hidden = hasProject;
     byId("workbenchEmptyImport").hidden = !hasProject;
     document.querySelector(".inspector").classList.toggle("isEmpty", !hasFrames);
@@ -481,6 +562,8 @@
   new MutationObserver(applyLanguage).observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
   groupSelect.addEventListener("change", scheduleSync);
   window.addEventListener("frame-tuner-export-state", scheduleSync);
+  window.addEventListener("frame-tuner-selection", scheduleSync);
+  window.addEventListener("frame-tuner-workbench-state", scheduleSync);
   byId("workbenchAnimationList").addEventListener("keydown", (event) => {
     if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     const buttons = Array.from(byId("workbenchAnimationList").querySelectorAll("button"));
