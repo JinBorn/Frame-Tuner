@@ -174,6 +174,8 @@ button.save:hover { background: var(--accent-dark); }
 .frameOptionGrid { gap: 7px; }
 .frameTransformActions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 8px 0; }
 .frameTransformActions button { min-width: 0; min-height: 29px; padding: 5px 2px; font-size: 10px; white-space: nowrap; }
+.frameBoxActions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin-top: 8px; }
+.frameBoxActions button { min-width: 0; min-height: 29px; padding: 5px 1px; font-size: 10px; white-space: nowrap; }
 .boxChoices { gap: 5px; }
 .boxChoice.activeBoxChoice { box-shadow: none; }
 .boxChoice span { font-size: 10px; }

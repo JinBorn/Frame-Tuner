@@ -298,6 +298,12 @@
             </div>
           </div>
           <label class="toggle"><input id="boxEnabled" type="checkbox" /><span data-i18n="boxEnabled">这一帧启用碰撞框</span></label>
+          <div class="frameBoxActions" data-i18n-title="frameBoxBatchHint" title="复制当前高亮框的局部坐标与启用状态；应用后仍受目标自身变换影响。攻击框仅支持所选帧。">
+            <button id="copyFrameBox" type="button" class="secondary" data-i18n="copyFrameBox" disabled>复制框</button>
+            <button id="applyFrameBoxSelection" type="button" class="secondary" data-i18n="applyFrameBoxSelection" disabled>所选帧</button>
+            <button id="applyFrameBoxAnimation" type="button" class="secondary" data-i18n="applyFrameBoxAnimation" disabled>整动作</button>
+            <button id="applyFrameBoxCharacter" type="button" class="secondary" data-i18n="applyFrameBoxCharacter" disabled>本角色</button>
+          </div>
         </details>
         <div id="exportPanelSlot"></div>
         </div>

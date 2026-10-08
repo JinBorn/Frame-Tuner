@@ -62,6 +62,10 @@ const els = {
   boxRotation: document.querySelector("#boxRotation"),
   deleteBox: document.querySelector("#deleteBox"),
   clearBox: document.querySelector("#clearBox"),
+  copyFrameBox: document.querySelector("#copyFrameBox"),
+  applyFrameBoxSelection: document.querySelector("#applyFrameBoxSelection"),
+  applyFrameBoxAnimation: document.querySelector("#applyFrameBoxAnimation"),
+  applyFrameBoxCharacter: document.querySelector("#applyFrameBoxCharacter"),
   fps: document.querySelector("#fps"),
   fpsValue: document.querySelector("#fpsValue"),
   vfxWindowControls: document.querySelector("#vfxWindowControls"),
@@ -117,6 +121,17 @@ const I18N = {
     character: "角色",
     characterBase: "角色 Base",
     clearBoxOverride: "清除碰撞框覆盖",
+    copyFrameBox: "复制框",
+    applyFrameBoxSelection: "所选帧",
+    applyFrameBoxAnimation: "整动作",
+    applyFrameBoxCharacter: "本角色",
+    frameBoxBatchHint: "复制当前高亮框的局部坐标与启用状态；应用后仍受目标自身变换影响。攻击框仅支持所选帧。",
+    frameBoxClipboardEmpty: "先复制当前高亮框；可应用到同角色、同类型框。",
+    frameBoxClipboardMismatch: "已复制{box}，请切回该框及来源角色后应用。",
+    frameBoxHitboxLimit: "攻击框只可应用到手动选择的帧，避免启用整个动作的攻击判定。",
+    frameBoxCopied: "已复制第 {frame} 帧的{box}，包含启用状态。",
+    frameBoxBatchConfirm: "将用已复制的{box}覆盖 {actions} 个动作、{frames} 帧的同类型框（含启用状态）。\n按原局部坐标应用，目标自身变换仍然生效；其他框保持不变。\n此操作可撤销。是否继续？",
+    frameBoxApplied: "已将{box}应用到 {actions} 个动作、{frames} 帧，可撤销。",
     clearFrameSfx: "清除帧音效",
     clearGroupOverrides: "清除整组覆盖",
     clearSelected: "清除选中帧",
@@ -287,6 +302,17 @@ const I18N = {
     character: "Character",
     characterBase: "Character Base",
     clearBoxOverride: "Clear box override",
+    copyFrameBox: "Copy box",
+    applyFrameBoxSelection: "Selected",
+    applyFrameBoxAnimation: "Animation",
+    applyFrameBoxCharacter: "Character",
+    frameBoxBatchHint: "Copy the active box's local coordinates and enabled state. Targets retain their own transforms. Attack boxes support selected frames only.",
+    frameBoxClipboardEmpty: "Copy the active box first; apply to the same box type on this character.",
+    frameBoxClipboardMismatch: "Copied {box}. Return to that box type and source character to apply.",
+    frameBoxHitboxLimit: "Attack boxes can only be applied to manually selected frames, avoiding attacks throughout an animation.",
+    frameBoxCopied: "Copied frame {frame} {box}, including its enabled state.",
+    frameBoxBatchConfirm: "Overwrite {box} in {actions} animations and {frames} frames with the copied box, including enabled state?\nOriginal local coordinates are applied; target transforms still take effect. Other box types stay unchanged.\nThis operation can be undone.",
+    frameBoxApplied: "Applied {box} to {actions} animations and {frames} frames. You can undo this operation.",
     clearFrameSfx: "Clear frame SFX",
     clearGroupOverrides: "Clear group overrides",
     clearSelected: "Clear selected",
@@ -491,6 +517,7 @@ let frameImageAttachmentClipboardProjectId = "";
 let ghost = true;
 let referenceFrameHiddenByKey = false;
 let frameTransformClipboard = null;
+let frameBoxClipboard = null;
 let previewSampling = localStorage.getItem("frameTuner.previewSampling") === "pixel" ? "pixel" : "smooth";
 let playing = false;
 let lastPlay = 0;
@@ -1747,6 +1774,7 @@ function renderProjectSelect() {
 
 function resetProjectSession() {
   frameTransformClipboard = null;
+  frameBoxClipboard = null;
   selectionTasks.invalidate();
   chainTasks.invalidate();
   selectionLoading = false;
@@ -2674,11 +2702,12 @@ function undo() {
     updateHistoryControls();
     return;
   }
-  redoStack.push({ label: item.label, state: cloneState() });
+  redoStack.push({ label: item.label, state: cloneState(), affectedGroupIds: item.affectedGroupIds });
   if (redoStack.length > 80) redoStack.shift();
   updateHistoryControls();
   restoreHistoryState(item.state).then(() => {
-    markDirty(adjustmentMode === "character" ? { profileId: currentGroup?.profileId } : undefined);
+    markDirty(item.affectedGroupIds ? { groups: config.groups.filter(group => item.affectedGroupIds.includes(group.uiId)) }
+      : adjustmentMode === "character" ? { profileId: currentGroup?.profileId } : undefined);
     updateHistoryControls();
     status(t("undone", { label: item.label }));
   });
@@ -2692,11 +2721,12 @@ function redo() {
     updateHistoryControls();
     return;
   }
-  undoStack.push({ label: item.label, state: cloneState() });
+  undoStack.push({ label: item.label, state: cloneState(), affectedGroupIds: item.affectedGroupIds });
   if (undoStack.length > 80) undoStack.shift();
   updateHistoryControls();
   restoreHistoryState(item.state).then(() => {
-    markDirty(adjustmentMode === "character" ? { profileId: currentGroup?.profileId } : undefined);
+    markDirty(item.affectedGroupIds ? { groups: config.groups.filter(group => item.affectedGroupIds.includes(group.uiId)) }
+      : adjustmentMode === "character" ? { profileId: currentGroup?.profileId } : undefined);
     updateHistoryControls();
     status(t("redone", { label: item.label }));
   });
@@ -3838,12 +3868,97 @@ function syncBoxInputs() {
   for (const input of [els.boxEnabled, els.deleteBox, els.clearBox].filter(Boolean)) {
     input.disabled = !enabled;
   }
+  syncFrameBoxActions();
   if (!enabled) {
     if (els.boxEnabled) els.boxEnabled.checked = false;
     return;
   }
   const box = frameBox(selectedBox);
   if (els.boxEnabled) els.boxEnabled.checked = box.enabled !== false;
+}
+
+function frameBoxActionsEditable() {
+  return Boolean(currentGroup?.frames?.length && currentGroup.profileId && selectedBox)
+    && !currentGroup.previewOwner && canEditBox(selectedBox) && groupSupports(currentGroup, "frame_boxes")
+    && !selectedFrameAttachment() && !frameAttachmentEditingLocked()
+    && !selectionLoading && !playbackSwitching && !projectOperationInFlight && !saveInFlight
+    && !frameSequenceOperationInFlight && !frameAssetOperationPending() && !portableExportBusy();
+}
+
+function frameBoxClipboardMatches() {
+  return Boolean(frameBoxClipboard) && frameBoxClipboard.projectId === activeProjectId()
+    && frameBoxClipboard.profileId === currentGroup?.profileId
+    && frameBoxClipboard.tuningTarget === (currentGroup?.tuningTarget || "")
+    && frameBoxClipboard.boxName === selectedBox;
+}
+
+function syncFrameBoxActions() {
+  const editable = frameBoxActionsEditable();
+  const ready = editable && frameBoxClipboardMatches();
+  if (els.copyFrameBox && els.copyFrameBox.disabled === editable) els.copyFrameBox.disabled = !editable;
+  for (const [button, bulk] of [[els.applyFrameBoxSelection, false], [els.applyFrameBoxAnimation, true], [els.applyFrameBoxCharacter, true]]) {
+    if (!button) continue;
+    const enabled = ready && (!bulk || selectedBox !== "hitbox");
+    if (button.disabled === enabled) button.disabled = !enabled;
+    const hint = bulk && selectedBox === "hitbox" ? t("frameBoxHitboxLimit")
+      : !frameBoxClipboard ? t("frameBoxClipboardEmpty")
+        : !frameBoxClipboardMatches() ? t("frameBoxClipboardMismatch", { box: t(frameBoxClipboard.boxName) })
+          : t("frameBoxBatchHint");
+    if (button.title !== hint) button.title = hint;
+  }
+}
+
+function frameBoxBatchTargets(scope) {
+  const groups = scope === "character" ? (config?.groups || []).filter(group =>
+    group.profileId === currentGroup.profileId && (group.tuningTarget || "") === (currentGroup.tuningTarget || "")
+    && !group.previewOwner
+    && (!previewOwnerGroup || group.uiId !== previewOwnerGroup.uiId || group.uiId === currentGroup.uiId)
+    && canEditBox(selectedBox, group) && groupSupports(group, "frame_boxes") && group.frames?.length)
+    : [currentGroup];
+  return groups.map(group => ({ group, indexes: scope === "selection" ? selectedFrameIndexes(group)
+    : group.frames.map((_, index) => index) }));
+}
+
+function runFrameBoxAction(scope) {
+  if (!["copy", "selection", "animation", "character"].includes(scope) || !frameBoxActionsEditable()) return;
+  if (adjustmentNumberInputs().includes(document.activeElement)) document.activeElement.blur();
+  if (!frameBoxActionsEditable()) return;
+  if (scope !== "copy" && (!frameBoxClipboardMatches() || (selectedBox === "hitbox" && scope !== "selection"))) return;
+  playing = false;
+  playbackPrimaryGroup = null;
+  playbackSecondaryGroup = null;
+  if (els.playPause) els.playPause.textContent = t("play");
+  if (scope === "copy") {
+    frameBoxClipboard = { projectId: activeProjectId(), profileId: currentGroup.profileId,
+      tuningTarget: currentGroup.tuningTarget || "", boxName: selectedBox,
+      box: structuredClone(frameBox(selectedBox)), frameIndex: selectedFrame };
+    syncFrameBoxActions();
+    status(t("frameBoxCopied", { box: t(selectedBox), frame: selectedFrame + 1 }));
+    return;
+  }
+  const targets = frameBoxBatchTargets(scope);
+  const actions = targets.length;
+  const frames = targets.reduce((total, target) => total + target.indexes.length, 0);
+  if (!frames) return;
+  const message = { box: t(selectedBox), actions, frames };
+  if (scope !== "selection" && !window.confirm(t("frameBoxBatchConfirm", message))) return;
+  if (!frameBoxActionsEditable() || !frameBoxClipboardMatches()) return;
+  pushUndo("apply frame boxes");
+  undoStack[undoStack.length - 1].affectedGroupIds = targets.map(target => target.group.uiId);
+  for (const { group, indexes } of targets) {
+    const store = boxOverrideStore(group);
+    for (const index of indexes) {
+      const key = frameBoxKey(index, group);
+      const metadata = structuredClone(store[key]?.[selectedBox] || {});
+      setBoxOverride(selectedBox, structuredClone(frameBoxClipboard.box), index, group);
+      store[key][selectedBox] = { ...metadata, ...store[key][selectedBox] };
+    }
+  }
+  markDirty({ groups: targets.map(target => target.group) });
+  syncBoxInputs();
+  renderFilmstrip();
+  draw();
+  status(t("frameBoxApplied", message));
 }
 
 function syncFrameAudioInputs() {
@@ -6386,6 +6501,7 @@ function updateAdjustmentFromInputs(editedInput = null) {
 
 function animate(time) {
   syncFrameTransformActions();
+  syncFrameBoxActions();
   if (!currentGroup || !images.length || playbackSwitching || selectionLoading) {
     requestAnimationFrame(animate);
     return;
@@ -6447,12 +6563,12 @@ async function ensureCollisionBoxOverridesForSave(changedGroupKeys = null) {
       const entry = structuredClone(store[key] || {});
       const base = defaultCollisionBox(index, group, groupImages);
       const existing = entry.collisionbox || {};
-      entry.collisionbox = normalizeFrameBox("collisionbox", {
+      entry.collisionbox = { ...existing, ...normalizeFrameBox("collisionbox", {
         offset: existing.offset ?? base.offset,
         size: existing.size ?? base.size,
         rotation: 0,
         enabled: existing.enabled ?? base.enabled,
-      });
+      }) };
       store[key] = entry;
     }
   }
@@ -7540,6 +7656,10 @@ if (els.deleteBox) {
   });
 }
 
+els.copyFrameBox?.addEventListener("click", () => runFrameBoxAction("copy"));
+els.applyFrameBoxSelection?.addEventListener("click", () => runFrameBoxAction("selection"));
+els.applyFrameBoxAnimation?.addEventListener("click", () => runFrameBoxAction("animation"));
+els.applyFrameBoxCharacter?.addEventListener("click", () => runFrameBoxAction("character"));
 els.resetFrameTransform?.addEventListener("click", () => runFrameTransformAction("reset"));
 els.copyFrameTransform?.addEventListener("click", () => runFrameTransformAction("copy"));
 els.applyFrameTransform?.addEventListener("click", () => runFrameTransformAction("apply"));
