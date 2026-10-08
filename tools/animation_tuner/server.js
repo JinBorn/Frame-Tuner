@@ -31,7 +31,7 @@ const {
 } = require("../codex_pets");
 const { checkForUpdates, performUpdate } = require("../updater");
 const { withUtf8Charset } = require("../http_content_type");
-const { assertLocalRequest, readRequestBody: readBody } = require("../http_security");
+const { assertLocalRequest, readRequestBody: readBody, attachmentDisposition } = require("../http_security");
 const { frameBoxCoverageIssues } = require("../box_estimator");
 const { createLiteApp } = require("../frame_tuner_lite/server");
 const { createWorkbenchService, resolveWorkbenchAsset, pngBuffer, commitImportFiles } = require("../workbench_service");
@@ -1464,7 +1464,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && parsed.pathname === "/api/workbench/export") {
       const payload = JSON.parse(req.workbenchBody);
       const result = await require("../export_package").buildExportPackage(payload, { projectData: workbench.projectData(payload.projectId), root: ROOT });
-      res.setHeader("content-disposition", `attachment; filename="${result.filename.replace(/["\r\n]/g, "_")}"`);
+      res.setHeader("content-disposition", attachmentDisposition(result.filename));
       return send(res, 200, result.buffer, "application/zip");
     }
     if (req.method === "POST" && parsed.pathname === "/api/workbench/codex-pets") {

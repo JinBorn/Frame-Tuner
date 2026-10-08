@@ -18,7 +18,7 @@ const {
 } = require("../attack_trail_presets");
 const { EMPTY_MANIFEST, EMPTY_SETTINGS, EMPTY_TUNING, createLiteStore, reslash, slug } = require("./store");
 const { withUtf8Charset } = require("../http_content_type");
-const { assertLocalRequest, readRequestBody: readBody } = require("../http_security");
+const { assertLocalRequest, readRequestBody: readBody, attachmentDisposition } = require("../http_security");
 const { createWorkbenchService, resolveWorkbenchAsset, commitImportFiles, pngBuffer } = require("../workbench_service");
 const { adapterForProject } = require("../engine_adapters");
 
@@ -640,7 +640,7 @@ const requestHandler = async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/workbench/export") {
       const payload = JSON.parse(await readBody(req));
       const result = await require("../export_package").buildExportPackage(payload, { projectData: workbench.projectData(payload.projectId), root: ROOT });
-      res.setHeader("content-disposition", `attachment; filename="${result.filename.replace(/["\r\n]/g, "_")}"`);
+      res.setHeader("content-disposition", attachmentDisposition(result.filename));
       return send(res, 200, result.buffer, "application/zip");
     }
     if (req.method === "GET" && url.pathname === "/api/update-status") return send(res, 200, { updateAvailable: false, lite: true });

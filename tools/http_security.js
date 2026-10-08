@@ -53,4 +53,13 @@ function readRequestBody(req, limit = 256 * 1024 * 1024) {
   });
 }
 
-module.exports = { assertLocalRequest, readRequestBody };
+function attachmentDisposition(filename) {
+  // HTTP header values cannot carry raw Unicode. Preserve it in the standard
+  // UTF-8 parameter, with a printable ASCII name for older download clients.
+  const name = String(filename).toWellFormed().replace(/[/\\\x00-\x1f\x7f]/g, "_");
+  const fallback = name.replace(/[^\x20-\x7e]|["\\]/gu, "_");
+  const encoded = encodeURIComponent(name).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+module.exports = { assertLocalRequest, readRequestBody, attachmentDisposition };

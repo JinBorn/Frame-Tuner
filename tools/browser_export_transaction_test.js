@@ -12,18 +12,51 @@ const { unzip } = require("./export_package_test");
 
 async function test() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "frame-tuner-export-transaction-"));
+  const projectId = "中文导出-𠮷";
+  const filename = `${projectId}_sequence.zip`;
   let browser, server, releasePost, releaseConfig, releaseEditorOperation;
   try {
     const service = createWorkbenchService({ root });
-    service.createProject({ label: "Export transaction", id: "transaction" });
+    service.createProject({ label: "中文导出事务", id: projectId });
     const sample = createSamplePackage();
-    service.importAnimation({ projectId: "transaction", profileId: "hero", animationId: "idle", fps: 12, files: [0, 2].map(index => ({ name: `idle_${index}.png`, data: `data:image/png;base64,${sample.files.get(`frames/demo_${index}.png`).toString("base64")}` })) });
+    service.importAnimation({ projectId, profileId: "hero", animationId: "idle", fps: 12, files: [0, 2].map(index => ({ name: `idle_${index}.png`, data: `data:image/png;base64,${sample.files.get(`frames/demo_${index}.png`).toString("base64")}` })) });
+    const assertArchive = (bytes, format = "sequence") => {
+      const archive = unzip(bytes);
+      const prefix = format === "cocos" ? "frame-tuner-source/" : "";
+      const manifest = JSON.parse(archive.get(`${prefix}manifest.json`));
+      assert.equal(manifest.projectId, projectId);
+      assert.equal(manifest.animations.length, 1);
+      assert.equal(manifest.animations[0].frames.length, 2);
+      for (const frame of manifest.animations[0].frames) assert.ok(archive.has(`${prefix}${frame.path}`), `${format} includes its rendered frame assets`);
+      const source = JSON.parse(archive.get(`${prefix}${manifest.editableSource}`));
+      assert.equal(source.project.id, projectId);
+      assert.equal(source.project.label, "中文导出事务");
+      const frames = source.manifest.profiles[0].animations[0].frames;
+      assert.equal(source.manifest.profiles[0].id, "hero");
+      assert.equal(source.manifest.profiles[0].animations[0].id, "idle");
+      assert.equal(frames.length, 2);
+      frames.forEach((frame, index) => {
+        assert.ok(frame.path.startsWith("source/assets/"));
+        assert.deepEqual(archive.get(`${prefix}${frame.path}`), sample.files.get(`frames/demo_${[0, 2][index]}.png`));
+      });
+      const editor = JSON.parse(archive.get(`${prefix}${manifest.editorSnapshot}`));
+      assert.equal(editor.projectId, projectId);
+      assert.equal(editor.groups[0].frames.length, 2);
+      if (format === "sheet") assert.ok(manifest.animations[0].frames.every(frame => frame.atlasRect), "Sheet export records atlas crops");
+      if (format === "cocos") {
+        const imported = JSON.parse(archive.get("FRAME-TUNER-IMPORT.json"));
+        assert.equal(imported.projectId, projectId);
+        assert.equal(imported.engineVersion, "3.8.8");
+        assert.ok([...archive.keys()].some(name => name.endsWith("/FrameTunerPlayer.ts")));
+      }
+      return archive;
+    };
     server = await startExportServer(root);
     browser = await chromium.launch({ executablePath: findBrowser(), headless: true });
     const page = await browser.newPage({ viewport: { width: 1440, height: 960 }, deviceScaleFactor: 1, acceptDownloads: true });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(`${server.url}/?project=transaction&export=1`, { waitUntil: "networkidle" });
+    await page.goto(`${server.url}/?project=${encodeURIComponent(projectId)}&export=1`, { waitUntil: "networkidle" });
     await page.evaluate(() => window.XsxbFrameTunerLite.ready);
     await page.evaluate(() => window.XsxbFrameTunerLite.selectGroup(window.XsxbFrameTunerLite.current().groupId, { frameIndex: 1 }));
     await page.locator("#portablePadding").fill("37");
@@ -76,7 +109,7 @@ async function test() {
     assert.equal(postCount, 1);
     assert.equal((await state()).status, "Packaging source data and baked assets…", "Rejected competitors must not replace the active transaction's progress");
     releasePost();
-    assert.deepEqual(await outcome(), { ok: true, filename: "transaction_sequence.zip" });
+    assert.deepEqual(await outcome(), { ok: true, filename });
     assert.equal(await page.evaluate(() => window.XsxbFrameTunerLite.current().frameIndex), 1, "export must restore the selected frame, not jump to the first frame");
     assert.deepEqual((await state()).states, [true, false], "Packaging must not release and reacquire the lock");
     assert.equal((await state()).busy, false);
@@ -116,11 +149,13 @@ async function test() {
     // Actual package generation followed by slow write AND slow commit.
     await page.evaluate(() => {
       window.disk = { stage: "picker", bytes: 0, aborted: false };
-      window.showDirectoryPicker = async () => ({ getFileHandle: async () => ({ createWritable: async () => ({
-        write: async (blob) => { window.disk.stage = "write"; window.disk.bytes = blob.size; await new Promise((resolve) => { window.finishWrite = resolve; }); },
+      window.showDirectoryPicker = async () => ({ getFileHandle: async (filename) => {
+        window.disk.filename = filename;
+        return { createWritable: async () => ({
+        write: async (blob) => { window.disk.blob = blob; window.disk.stage = "write"; window.disk.bytes = blob.size; await new Promise((resolve) => { window.finishWrite = resolve; }); },
         close: async () => { window.disk.stage = "close"; await new Promise((resolve) => { window.finishClose = resolve; }); window.disk.stage = "done"; },
         abort: async () => { window.disk.aborted = true; },
-      }) }) });
+      }) }; } });
     });
     await start({ destination: "directory" });
     await page.waitForFunction(() => window.disk.stage === "write");
@@ -133,8 +168,10 @@ async function test() {
     await page.evaluate(() => window.finishClose());
     assert.equal((await outcome()).ok, true);
     assert.equal((await state()).busy, false);
-    assert.equal((await state()).status, "Saved 1 animation · transaction_sequence.zip");
+    assert.equal((await state()).status, `Saved 1 animation · ${filename}`);
     assert.ok(await page.evaluate(() => window.disk.bytes > 0 && !window.disk.aborted));
+    assert.equal(await page.evaluate(() => window.disk.filename), filename, "Folder save receives the complete Unicode filename");
+    assertArchive(Buffer.from(await page.evaluate(async () => Array.from(new Uint8Array(await window.disk.blob.arrayBuffer())))));
 
     await page.evaluate(() => {
       window.disk.aborted = false;
@@ -160,13 +197,13 @@ async function test() {
     const download = await downloaded;
     assert.equal((await outcome()).ok, true);
     assert.equal(await page.evaluate(() => window.downloadWasLocked), true);
-    const archive = unzip(fs.readFileSync(await download.path()));
-    assert.equal(JSON.parse(archive.get("manifest.json")).projectId, "transaction");
+    assert.equal(download.suggestedFilename(), filename, "Chrome download retains Chinese and supplementary Unicode characters");
+    assertArchive(fs.readFileSync(await download.path()));
     assert.equal((await state()).busy, false);
-    assert.equal((await state()).status, "Download started with 1 animation · transaction_sequence.zip");
+    assert.equal((await state()).status, `Download started with 1 animation · ${filename}`);
 
     const standalone = await page.evaluate(async () => { const payload = await window.FrameTunerPortable.collectPayload({ format: "sequence" }); return { projectId: payload.projectId, busy: window.FrameTunerPortable.busy() }; });
-    assert.deepEqual(standalone, { projectId: "transaction", busy: false });
+    assert.deepEqual(standalone, { projectId, busy: false });
     const failure = await page.evaluate(async () => { try { await window.FrameTunerPortable.collectPayload({ format: "invalid" }); } catch (error) { return { message: error.message, busy: window.FrameTunerPortable.busy() }; } });
     assert.deepEqual(failure, { message: "Unsupported export format: invalid", busy: false });
     for (const operation of [{ name: "loading", url: "**/api/config**", run: "reload" }, { name: "saving", url: "**/api/save", run: "save" }]) {
@@ -191,15 +228,49 @@ async function test() {
     const earlyPage = await browser.newPage();
     const configGate = new Promise((resolve) => { releaseConfig = resolve; });
     await earlyPage.route("**/api/config**", async (route) => { await configGate; await route.continue(); });
-    await earlyPage.goto(`${server.url}/?project=transaction&export=1`, { waitUntil: "domcontentloaded" });
+    await earlyPage.goto(`${server.url}/?project=${encodeURIComponent(projectId)}&export=1`, { waitUntil: "domcontentloaded" });
     await earlyPage.waitForFunction(() => Boolean(window.FrameTunerPortable));
     await earlyPage.evaluate(() => { window.earlyPayload = window.FrameTunerPortable.collectPayload({ format: "sequence" }).then((payload) => ({ projectId: payload.projectId })); });
     assert.equal(await earlyPage.evaluate(() => window.FrameTunerPortable.busy()), false, "Waiting for initial editor readiness must not block its group selection");
     releaseConfig();
-    assert.deepEqual(await earlyPage.evaluate(() => window.earlyPayload), { projectId: "transaction" });
+    assert.deepEqual(await earlyPage.evaluate(() => window.earlyPayload), { projectId });
     await earlyPage.close();
+    // Exercise the user's actual destination select and format buttons for all ZIP formats.
+    await page.evaluate(() => {
+      window.showDirectoryPicker = async () => ({ getFileHandle: async (filename) => {
+        window.matrixDisk = { filename, done: false };
+        return { createWritable: async () => ({
+          write: async (blob) => { window.matrixDisk.blob = blob; },
+          close: async () => { window.matrixDisk.done = true; },
+          abort: async () => { window.matrixDisk.aborted = true; },
+        }) };
+      } });
+    });
+    for (const destination of ["download", "directory"]) {
+      await page.locator("#portableDestination").selectOption(destination);
+      for (const format of ["sequence", "sheet", "cocos"]) {
+        const expectedFilename = `${projectId}_${format}.zip`;
+        const response = page.waitForResponse(response => new URL(response.url()).pathname === "/api/workbench/export");
+        const downloaded = destination === "download" ? page.waitForEvent("download") : null;
+        await page.evaluate(() => { window.matrixDisk = null; });
+        await page.locator(`[data-export-format="${format}"]`).click();
+        assert.equal((await response).status(), 200, `${destination}/${format} packages through real HTTP`);
+        let bytes;
+        if (downloaded) {
+          const download = await downloaded;
+          assert.equal(download.suggestedFilename(), expectedFilename);
+          bytes = fs.readFileSync(await download.path());
+        } else {
+          await page.waitForFunction(() => window.matrixDisk?.done);
+          assert.equal(await page.evaluate(() => window.matrixDisk.filename), expectedFilename);
+          bytes = Buffer.from(await page.evaluate(async () => Array.from(new Uint8Array(await window.matrixDisk.blob.arrayBuffer()))));
+        }
+        await page.waitForFunction(() => !window.FrameTunerPortable.busy());
+        assertArchive(bytes, format);
+      }
+    }
     assert.deepEqual(errors, []);
-    return { ok: true, verified: "whole-export lock, delayed HTTP concurrency, save/load exclusion, HTTP/picker/disk failure recovery, disk commit, real ZIP download, initial-ready and independent collectPayload, translated labels/status with preserved inputs" };
+    return { ok: true, verified: "whole-export lock, delayed HTTP concurrency, save/load exclusion, HTTP/picker/disk failure recovery, disk commit, Chinese/supplementary Unicode ZIP download and directory filenames in all three formats through actual controls with archived source verification, initial-ready and independent collectPayload, translated labels/status with preserved inputs" };
   } finally {
     releasePost?.();
     releaseConfig?.();
