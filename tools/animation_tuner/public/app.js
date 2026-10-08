@@ -207,6 +207,11 @@ const I18N = {
     language: "语言",
     languageChinese: "中文",
     languageEnglish: "English",
+    theme: "界面主题",
+    themeDark: "暗色",
+    themeLight: "亮色",
+    themeDarkHint: "使用暗色界面",
+    themeLightHint: "使用亮色界面",
     loadedFrames: "{count} 帧已载入",
     loadFailed: "加载失败：{message}",
     loadedStatus: "项目：{project}\n已载入 {count} 组\n{path}{warnings}",
@@ -388,6 +393,11 @@ const I18N = {
     language: "Language",
     languageChinese: "中文",
     languageEnglish: "English",
+    theme: "Interface theme",
+    themeDark: "Dark",
+    themeLight: "Light",
+    themeDarkHint: "Use dark theme",
+    themeLightHint: "Use light theme",
     loadedFrames: "{count} loaded frames",
     loadFailed: "Load failed: {message}",
     loadedStatus: "Project: {project}\nLoaded {count} groups\n{path}{warnings}",
@@ -714,6 +724,9 @@ function applyLanguage() {
   document.querySelectorAll("[data-i18n-title]").forEach((node) => {
     node.title = t(node.dataset.i18nTitle);
   });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((node) => {
+    node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel));
+  });
   updateSaveState();
   updateHistoryControls();
   syncFrameAudioInputs();
@@ -741,6 +754,7 @@ function normalizeColor(value, fallback = "#000000") {
 
 function applyUiTheme() {
   uiTheme = normalizeTheme(uiTheme);
+  document.documentElement.style.colorScheme = uiTheme;
   document.body.classList.toggle("theme-light", uiTheme === "light");
   document.body.classList.toggle("theme-dark", uiTheme !== "light");
   for (const button of els.themeButtons) {

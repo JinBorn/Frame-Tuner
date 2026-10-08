@@ -9,6 +9,14 @@
     <link rel="stylesheet" href="/workbench.css?v=20261006" />
   </head>
   <body>
+    <script>
+      (() => {
+        let theme = "dark";
+        try { if (localStorage.getItem("xsxbFrameTuner.theme") === "light") theme = "light"; } catch {}
+        document.body.classList.add(`theme-${theme}`);
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
     <main class="app">
       <header class="workbenchHeader">
         <div class="brand">
@@ -17,6 +25,10 @@
           <span class="localBadge"><i></i> LOCAL</span>
         </div>
         <div class="headerActions">
+          <div class="themeSwitch headerThemeSwitch" role="group" aria-label="界面主题" data-i18n-aria-label="theme">
+            <button type="button" class="themeButton" data-theme="dark" aria-pressed="true" aria-label="暗色" data-i18n-aria-label="themeDark" title="使用暗色界面" data-i18n-title="themeDarkHint"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 11.3A6.7 6.7 0 0 1 8.7 3.5a6.8 6.8 0 1 0 7.8 7.8Z"/></svg><span class="themeButtonLabel" data-i18n="themeDark">暗色</span></button>
+            <button type="button" class="themeButton" data-theme="light" aria-pressed="false" aria-label="亮色" data-i18n-aria-label="themeLight" title="使用亮色界面" data-i18n-title="themeLightHint"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.3"/><path d="M10 1.5v1.7M10 16.8v1.7M1.5 10h1.7M16.8 10h1.7M4 4l1.2 1.2M14.8 14.8 16 16M4 16l1.2-1.2M14.8 5.2 16 4"/></svg><span class="themeButtonLabel" data-i18n="themeLight">亮色</span></button>
+          </div>
           <button id="workbenchNewProject" type="button" class="secondary"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg><span data-workbench-i18n="newProject">新建项目</span></button>
           <button id="workbenchImport" type="button" class="secondary"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 12V3m-3 3 3-3 3 3M4 12v4h12v-4"/></svg><span data-workbench-i18n="import">导入素材</span></button>
           <div class="saveControls"><span id="saveState" class="saveState" data-i18n="noChanges" role="status">没有改动</span><button id="save" class="save" data-i18n="saveTuning">保存调参</button></div>
@@ -331,10 +343,6 @@
           <div class="toolbarActions">
             <div class="appearanceControls" aria-label="UI appearance">
               <div class="languageButtons" aria-label="Language"><button type="button" class="languageButton" data-language="zh" title="中文">中</button><button type="button" class="languageButton" data-language="en" title="English">EN</button></div>
-              <div class="themeSwitch" aria-label="Theme">
-                <button type="button" class="themeButton" data-theme="dark" title="黑色 UI">黑</button>
-                <button type="button" class="themeButton" data-theme="light" title="白色 UI">白</button>
-              </div>
               <label class="canvasColorControl" title="画布颜色">
                 <input id="canvasColor" type="color" value="#000000" />
               </label>

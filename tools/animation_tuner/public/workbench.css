@@ -1,5 +1,6 @@
 /* Shared workbench shell. Legacy editor controls keep their IDs and behavior. */
 :root, body.theme-dark {
+  color-scheme: dark;
   --bg: #101316;
   --panel: #171b20;
   --panel-2: #20262d;
@@ -29,11 +30,14 @@
   --shadow: rgba(0, 0, 0, .3);
   --hard-shadow: none;
   --soft-shadow: 0 12px 36px rgba(0, 0, 0, .22);
+  --dialog-shadow: 0 24px 90px rgba(0, 0, 0, .5);
+  --dialog-backdrop: rgba(7, 11, 16, .72);
   --radius: 6px;
   --ui-font: "Segoe UI", "Microsoft YaHei UI", sans-serif;
   --data-font: "Cascadia Code", Consolas, monospace;
 }
 body.theme-light {
+  color-scheme: light;
   --bg: #e9eef2;
   --panel: #f7f9fb;
   --panel-2: #e8eef3;
@@ -45,18 +49,25 @@ body.theme-light {
   --line-strong: #aebdca;
   --ink: #253641;
   --text: var(--ink);
-  --muted: #617382;
+  --muted: #5d6f7d;
   --control-bg: #ffffff;
   --control-ink: #283e4d;
   --control-muted: #627888;
-  --accent: #217c69;
-  --accent-2: #217c69;
-  --accent-3: #217c69;
+  --accent: #1b705e;
+  --accent-2: #1b705e;
+  --accent-3: #1b705e;
   --accent-dark: #196654;
   --on-bright: #ffffff;
-  --ok: #217c69;
+  --ok: #1b705e;
   --danger: #b84150;
+  --danger-hover: #98313f;
   --danger-ink: #ffffff;
+  --layer-behind: #346ca8;
+  --layer-front: #91611c;
+  --shadow: rgba(31, 50, 65, .16);
+  --soft-shadow: 0 12px 36px rgba(31, 50, 65, .12);
+  --dialog-shadow: 0 24px 72px rgba(31, 50, 65, .22);
+  --dialog-backdrop: rgba(34, 49, 62, .35);
   --hard-shadow: none;
 }
 body, body.theme-light { background: var(--bg); font-size: 12px; }
@@ -65,6 +76,7 @@ button, input, select { border-width: 1px; font-weight: 500; min-height: 33px; b
 button { cursor: pointer; transition: background .14s ease, border-color .14s ease, color .14s ease; }
 button:hover, select:hover, input:hover { transform: none; box-shadow: none; }
 button.secondary:hover { background: var(--surface-2); border-color: var(--line-strong); }
+input::placeholder, textarea::placeholder { color: var(--control-muted); opacity: 1; }
 select:focus, input:focus, button:focus { outline: none; }
 select:focus-visible, input:focus-visible, button:focus-visible, summary:focus-visible, .toggle:focus-within {
   outline: 2px solid var(--accent); outline-offset: 3px;
@@ -197,6 +209,12 @@ button.save:hover { background: var(--accent-dark); }
 .themeSwitch, .languageButtons { gap: 2px; margin: 0; }
 .themeButton, .languageButton { min-height: 25px; min-width: 25px; padding: 0 5px; border-color: transparent; background: transparent; box-shadow: none; font-size: 10px; font-weight: 400; }
 .themeButton.active, .languageButton.active { background: var(--surface-2); color: var(--ink); border-color: var(--line); }
+.headerThemeSwitch.themeSwitch { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
+.headerThemeSwitch .themeButton { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; min-height: 28px; padding: 4px 9px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.headerThemeSwitch .themeButton > svg { width: 15px; height: 15px; }
+.headerThemeSwitch .themeButton:hover { color: var(--ink); background: var(--surface-2); }
+.headerThemeSwitch .themeButton.active, .headerThemeSwitch .themeButton[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.headerThemeSwitch .themeButton:focus-visible { outline-offset: 2px; }
 .canvasColorControl { height: 28px; width: 27px; }
 .canvasColorControl input { min-height: 24px; height: 24px; width: 24px; padding: 3px; border: 1px solid var(--line); border-radius: 5px; box-shadow: none; }
 .historyControls { gap: 3px; }
@@ -243,7 +261,7 @@ button.save:hover { background: var(--accent-dark); }
 .thumbDuration b { font: 9px var(--data-font); color: var(--muted); }
 .frameDeleteButton { display: inline-flex; align-items: center; justify-content: center; }
 .frameDeleteButton svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-.frameDeleteButton:hover:not(:disabled) { color: #ff8989; background: rgba(255, 100, 100, .1); }
+.frameDeleteButton:hover:not(:disabled) { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .frameDeleteButton:disabled { opacity: .35; cursor: default; }
 .durationStep, .frameCopyButton, .frameDeleteButton { height: 20px; min-height: 20px; width: 20px; border: 0; box-shadow: none; padding: 0; font-size: 11px; border-radius: 3px; background: transparent; color: var(--muted); }
 .frameSfxBadge { width: 21px; height: 21px; min-height: 21px; border: 1px solid var(--line); box-shadow: none; background: var(--panel-2); color: var(--accent); }
@@ -277,8 +295,8 @@ button.save:hover { background: var(--accent-dark); }
 .dangerMini { background: color-mix(in srgb, var(--danger) 10%, var(--panel)); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 24%, var(--line)); }
 .accentButton { border-color: transparent; background: var(--accent); color: var(--on-bright); font-weight: 600; }
 .accentButton:hover { background: var(--accent-dark); border-color: transparent; }
-.workbenchDialog, .trailPresetDialog { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); color: var(--ink); box-shadow: 0 24px 90px #0008; }
-.workbenchDialog::backdrop, .trailPresetDialog::backdrop { background: #070b10b8; backdrop-filter: blur(5px); }
+.workbenchDialog, .trailPresetDialog { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); color: var(--ink); box-shadow: var(--dialog-shadow); }
+.workbenchDialog::backdrop, .trailPresetDialog::backdrop { background: var(--dialog-backdrop); backdrop-filter: blur(5px); }
 .workbenchForm { display: grid; gap: 19px; padding: 25px; }
 .dialogHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .dialogEyebrow { font: 9px var(--data-font); color: var(--accent); letter-spacing: 1.5px; }
@@ -332,6 +350,8 @@ button.save:hover { background: var(--accent-dark); }
   .inspectorScroll { padding-inline: 12px; }
 }
 @media (max-width: 980px) {
+  .headerThemeSwitch .themeButtonLabel { display: none; }
+  .headerThemeSwitch .themeButton { width: 29px; padding-inline: 5px; }
   .app { grid-template-columns: 176px minmax(0, 1fr) 264px; }
   .assetNavigator { padding-inline: 10px; }
   .paneKicker { display: none; }
