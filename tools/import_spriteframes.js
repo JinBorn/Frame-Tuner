@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { EMPTY_MANIFEST, EMPTY_TUNING, createProjectStore, godotProjectName, slug } = require("./project_store");
+const { EMPTY_MANIFEST, EMPTY_TUNING, createProjectStore, godotProjectName, projectEngine, slug } = require("./project_store");
 const { syncGodotProject } = require("./godot_sync");
 const { upsertEstimatedFrameBoxes } = require("./box_estimator");
 const { ensureInitialCharacterScale } = require("./import_scale");
@@ -132,6 +132,7 @@ function projectForImport(args, projectRoot) {
   const requestedId = slug(label);
   const explicitProject = Boolean(args.project);
   let project = registry.projects.find((entry) => entry.id === requestedId);
+  if (project && projectEngine(project) === "unsupported") throw new Error(`Unsupported import target: ${project.kind}`);
   if (!project) {
     registry = projectStore.addProject({ id: requestedId, label, projectRoot });
     project = registry.projects.find((entry) => entry.id === registry.activeProjectId);

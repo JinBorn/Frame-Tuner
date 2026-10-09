@@ -7,7 +7,6 @@ const { createProjectStore } = require("./project_store");
 const { createSamplePackage } = require("./cocos/sample_package");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "main-replace-atomic-"));
 process.env.FRAME_TUNER_ROOT = root;
-process.env.FRAME_TUNER_CODEX_PETS = "0";
 const { server, replaceAnimationImages } = require("./animation_tuner/server");
 async function test() {
   try {

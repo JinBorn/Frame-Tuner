@@ -6,7 +6,6 @@ const ADAPTERS = Object.freeze({
   godot: { id: "godot", engine: "godot", label: "Godot", sync: true, scenes: true, portableExport: false },
   unity: { id: "unity", engine: "unity", label: "Unity", sync: true, scenes: true, portableExport: false },
   cocos: { id: "cocos", engine: "cocos", label: "Cocos Creator 3.8.8 export", sync: false, scenes: false, portableExport: true },
-  codex_pets: { id: "codex_pets", engine: "codex_pets", label: "Codex Pets (optional)", sync: true, scenes: false, portableExport: false },
 });
 
 function projectKind(project) {
@@ -22,8 +21,8 @@ function capabilities(options = {}) {
   return {
     schemaVersion: 1,
     defaultKind: "frame_lite",
-    features: { manageProjects: options.manageProjects === true, createProject: true, importPng: true, importSheet: true, portableExport: true, codexPets: options.codexPets === true, codexPetsToggle: options.codexPetsToggle === true },
-    adapters: Object.values(ADAPTERS).map((adapter) => ({ ...adapter, supported: true, enabled: adapter.id !== "codex_pets" || options.codexPets === true })),
+    features: { manageProjects: options.manageProjects === true, createProject: true, importPng: true, importSheet: true, portableExport: true },
+    adapters: Object.values(ADAPTERS).map((adapter) => ({ ...adapter, supported: true, enabled: true })),
   };
 }
 

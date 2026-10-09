@@ -14,7 +14,6 @@ const {
 const { parseBatchArgs } = require("./import_batch");
 const { runtimeScript } = require("./godot_runtime");
 const { profileIdsForSceneText } = require("./scene_profiles");
-const { ATLAS_HEIGHT, ATLAS_HEIGHT_V2, ATLAS_WIDTH, PET_STATES, parseWebpSize } = require("./codex_pets");
 const { normalizeAttackTrails, pngInfo, validateAttackTrails } = require("./attack_trails");
 const {
   attackTrailsWithSharedPresets,
@@ -328,23 +327,6 @@ assert.deepEqual(bakedSamples.map((sample) => ({
 assert.deepEqual(distributeIntegerMilliseconds(Array(6).fill(22.5)), [23, 22, 23, 22, 23, 22]);
 assert.equal(distributeIntegerMilliseconds(Array(6).fill(22.5)).reduce((sum, value) => sum + value, 0), 135);
 
-assert.deepEqual(PET_STATES.map((state) => state.id), [
-  "idle", "running-right", "running-left", "waving", "jumping", "failed", "waiting", "running", "review",
-]);
-assert.deepEqual(PET_STATES.map((state) => state.durations.length), [6, 8, 8, 4, 5, 8, 6, 6, 6]);
-assert.equal(PET_STATES.reduce((total, state) => total + state.durations.length, 0), 57);
-const webpHeader = Buffer.alloc(30);
-webpHeader.write("RIFF", 0, "ascii");
-webpHeader.writeUInt32LE(22, 4);
-webpHeader.write("WEBP", 8, "ascii");
-webpHeader.write("VP8X", 12, "ascii");
-webpHeader.writeUInt32LE(10, 16);
-webpHeader.writeUIntLE(ATLAS_WIDTH - 1, 24, 3);
-webpHeader.writeUIntLE(ATLAS_HEIGHT - 1, 27, 3);
-assert.deepEqual(parseWebpSize(webpHeader), { width: ATLAS_WIDTH, height: ATLAS_HEIGHT });
-webpHeader.writeUIntLE(ATLAS_HEIGHT_V2 - 1, 27, 3);
-assert.deepEqual(parseWebpSize(webpHeader), { width: ATLAS_WIDTH, height: ATLAS_HEIGHT_V2 });
-
 const sceneProfiles = [
   { id: "hero", label: "Hero" },
   { id: "companion", label: "companion_idle" },
@@ -624,7 +606,7 @@ assert.match(tunerAppSource, /window\.XsxbFrameTunerLite/);
 assert.match(tunerAppSource, /function frameAudioKey[\s\S]*?tuningAnimationName\(group\)/);
 assert.match(tunerServerSource, /values: tuningFile\.values/);
 assert.match(tunerServerSource, /values: supplied\("values"\)/);
-assert.match(tunerServerSource, /const attackTrails = project\.kind === "codex_pets" \? EMPTY_ATTACK_TRAILS : readAttackTrails\(project\)/);
+assert.match(tunerServerSource, /const attackTrails = readAttackTrails\(project\)/);
 assert.match(tunerServerSource, /function projectConfigRevision\(project\)/);
 assert.match(tunerServerSource, /sharedAttackTrailPresetPath\(ROOT\)/);
 assert.match(tunerServerSource, /saveSharedAttackTrailPresets\(ROOT, project\.id, trails\.presets\)/);

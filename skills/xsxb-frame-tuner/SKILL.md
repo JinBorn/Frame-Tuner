@@ -1,6 +1,6 @@
 ---
 name: xsxb-frame-tuner
-description: Import, tune, validate, and export frame animations with Frame Tuner. Use for PNG sequences, sprite sheets, frame timing, layers, boxes, SFX, attack trails, or Cocos Creator 3.8.8 animation packages; use the optional Godot, Unity, and Codex Pets adapters only for those targets.
+description: Import, tune, validate, and export frame animations with Frame Tuner. Use for PNG sequences, sprite sheets, frame timing, layers, boxes, SFX, attack trails, or Cocos Creator 3.8.8 animation packages; use the optional Godot and Unity adapters only for those targets.
 ---
 
 # Frame Tuner
@@ -21,7 +21,6 @@ Read only the references relevant to the task:
 - [godot-contract.md](references/godot-contract.md): existing Godot bindings, SpriteFrames, runtime sync, and requested gameplay integration.
 - [unity-contract.md](references/unity-contract.md): existing Unity bindings and runtime sync.
 - [lite-contract.md](references/lite-contract.md): the isolated legacy Lite workspace.
-- [pets-contract.md](references/pets-contract.md): explicitly requested Codex pet atlases.
 - [ui-contract.md](references/ui-contract.md): editing the workbench itself or changing its save format.
 
 ## Common workflow

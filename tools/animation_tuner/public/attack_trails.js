@@ -492,7 +492,7 @@
     contextChanged() {
       this._discardPresetEdit();
       this.staticEditPreview = false;
-      const supported = this.hooks.projectKind() !== "codex_pets" && Boolean(this.hooks.group());
+      const supported = Boolean(this.hooks.group());
       this._syncGuideToggle(supported);
       if (this.els.attackTrailPanel) this.els.attackTrailPanel.hidden = !supported;
       if (!supported) {
@@ -606,7 +606,7 @@
     render() {
       this._syncAttachmentEditingLock();
       const e = this.els;
-      const supported = this.hooks.projectKind() !== "codex_pets" && Boolean(this.hooks.group());
+      const supported = Boolean(this.hooks.group());
       this._syncGuideToggle(supported);
       if (!e.attackTrailPanel || e.attackTrailPanel.hidden) return;
       e.attackTrailMode.checked = this.enabled;

@@ -134,7 +134,7 @@ async function freePort() {
 
 async function startExportServer(root) {
   const port = await freePort();
-  const child = spawn(process.execPath, [path.join(__dirname, "animation_tuner", "server.js")], { env: { ...process.env, FRAME_TUNER_ROOT: root, PORT: String(port), FRAME_TUNER_CODEX_PETS: "0" }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [path.join(__dirname, "animation_tuner", "server.js")], { env: { ...process.env, FRAME_TUNER_ROOT: root, PORT: String(port) }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   try {
     await new Promise((resolve, reject) => {
       let stderr = "", stdout = "";

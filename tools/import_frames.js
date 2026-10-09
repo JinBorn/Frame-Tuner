@@ -79,7 +79,10 @@ function projectForImport(args) {
   }
   if (projectRoot && !args.project) {
     const existingByRoot = registry.projects.find((entry) => samePath(entry.projectRoot, projectRoot));
-    if (existingByRoot) return existingByRoot;
+    if (existingByRoot) {
+      if (projectEngine(existingByRoot) === "unsupported") throw new Error(`Unsupported import target: ${existingByRoot.kind}`);
+      return existingByRoot;
+    }
     const label = godotProjectName(projectRoot) || path.basename(projectRoot);
     registry = projectStore.addProject({ label, projectRoot, kind: args.engine });
     const project = registry.projects.find((entry) => entry.id === registry.activeProjectId);
@@ -89,6 +92,7 @@ function projectForImport(args) {
 
   const requestedId = args.project ? slug(args.project) : registry.activeProjectId;
   let project = registry.projects.find((entry) => entry.id === requestedId);
+  if (project && projectEngine(project) === "unsupported") throw new Error(`Unsupported import target: ${project.kind}`);
   if (!project && (args.project || projectRoot)) {
     registry = projectStore.addProject({
       id: args.project ? requestedId : path.basename(projectRoot),

@@ -45,7 +45,7 @@ Read this reference only when changing the tuner UI, save payload, or direct-man
 ## Attack Trail Mode
 
 - Attack trails are independent profile/animation bindings stored in `attack_trails.json`; never store their sticks as collision boxes or ordinary frame-image attachments.
-- Hide this mode for Codex Pets projects. Projects with trail support expose segment, texture, color, total duration, tail/head speed ratio, layer, and ordered-stick controls.
+- Projects with trail support expose segment, texture, color, total duration, tail/head speed ratio, layer, and ordered-stick controls.
 - Store stick endpoints in the same stable character/frame-local coordinates used by the runtime `VisualOwner`. Each stick records a zero-based frame and `framePhase`.
 - Each stick has a `headFrame` flag. Head-frame sticks are the only temporal head poses; unmarked sticks shape the spatial path but must never become a rendered head pose. New sticks use automatic mode: only the current last stick is a head frame, and the previous automatic last stick becomes a path-only guide when another stick is added. Preserve manually marked head frames and legacy flags.
 - The first stick is always the implicit zero-area path origin even when it is not a head frame. Keep only the last stick fixed as a head frame.
@@ -80,12 +80,3 @@ Read this reference only when changing the tuner UI, save payload, or direct-man
 - Disable update while tuner edits are unsaved.
 - Never overwrite tracked local code changes, update a non-`main` branch, or trust a remote outside `JinBorn/Frame-Tuner`.
 - Update only the tuner clone, then restart the local server and reconnect the page. Skill installation/update is a separate explicit `tools/install_skill.js` operation and must not be inferred from a workbench update.
-
-## Codex Pets Project
-
-- Show Codex Pets only when the adapter has been explicitly enabled; show profiles as pets and groups as states.
-- Hide Godot-only scene scale and gameplay box panels in this project.
-- Render each atlas cell as an isolated `192x208` frame even though several frames share one WebP path.
-- Keep v1 animation timing visible but read-only; expose the 16 v2 look-direction cells as one `looking` group.
-- Show Import new pet only for this project and accept only `1536x1872` v1 or `1536x2288` v2 WebP atlases.
-- Built-in pets are read-only. Save may retain their Tuner transforms, but only custom pets may be baked back into Codex storage.

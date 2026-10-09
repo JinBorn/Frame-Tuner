@@ -5,7 +5,6 @@ const els = {
   updateButton: document.querySelector("#updateButton"),
   projectSelect: document.querySelector("#projectSelect"),
   projectBinding: document.querySelector("#projectBinding"),
-  addCodexPet: document.querySelector("#addCodexPet"),
   refreshProject: document.querySelector("#refreshProject"),
   languageSelect: document.querySelector("#languageSelect"),
   languageButtons: Array.from(document.querySelectorAll("[data-language]")),
@@ -230,16 +229,6 @@ const I18N = {
     playback: "播放",
     preloadedFrames: "已预载 {count} 帧\n{root}",
     project: "项目",
-    pet: "宠物",
-    state: "状态",
-    addCodexPet: "＋ 导入新宠物",
-    codexPetNamePrompt: "宠物显示名称",
-    codexPetDescriptionPrompt: "宠物描述（可留空）",
-    codexPetAtlasWrongSize: "Codex 宠物图集必须是 1536×1872（v1）或 1536×2288（v2）的 WebP。",
-    codexPetImportFailed: "宠物导入失败：{message}",
-    codexPetImported: "已导入 {name}，正在刷新宠物项目。",
-    codexPetBuiltInSaved: "内置宠物只读；调参已保存在 Tuner。导入为自定义宠物后可回写 Codex。",
-    codexPetExported: "已回写 {count} 个自定义宠物，并保留原始图集备份。",
     projectRefreshFailed: "刷新失败：{message}",
     projectSwitchConfirm: "重新加载或切换项目会丢弃未保存的调参，继续吗？",
     projectSwitchFailed: "项目切换失败：{message}",
@@ -416,16 +405,6 @@ const I18N = {
     playback: "Playback",
     preloadedFrames: "Preloaded {count} frames\n{root}",
     project: "Project",
-    pet: "Pet",
-    state: "State",
-    addCodexPet: "+ Import new pet",
-    codexPetNamePrompt: "Pet display name",
-    codexPetDescriptionPrompt: "Pet description (optional)",
-    codexPetAtlasWrongSize: "A Codex pet atlas must be a 1536×1872 (v1) or 1536×2288 (v2) WebP.",
-    codexPetImportFailed: "Pet import failed: {message}",
-    codexPetImported: "Imported {name}; refreshing the pet project.",
-    codexPetBuiltInSaved: "Built-in pets are read-only. Tuning was saved in the Tuner; import a custom copy to write it back to Codex.",
-    codexPetExported: "Updated {count} custom pets and kept the original atlas backup.",
     projectRefreshFailed: "Refresh failed: {message}",
     projectSwitchConfirm: "Reload or switch project and discard unsaved tuning changes?",
     projectSwitchFailed: "Project switch failed: {message}",
@@ -591,7 +570,6 @@ let adjustmentMode = ADJUSTMENT_MODES.includes(localStorage.getItem(ADJUSTMENT_M
 let frameBoxOverrides = {};
 const GROUP_PLAYBACK_FRAME = "__group";
 let dirty = false;
-let dirtyPetProfileIds = new Set();
 let dirtyRevision = 0;
 let dirtyGroupRevisions = new Map();
 let saveInFlight = false;
@@ -875,7 +853,6 @@ function markDirty({ groups = null, profileId = "" } = {}) {
     const key = saveScopeGroupKey(group);
     if (key) dirtyGroupRevisions.set(key, dirtyRevision);
   }
-  if (config?.projectKind === "codex_pets" && currentGroup?.profileId) dirtyPetProfileIds.add(currentGroup.profileId);
   updateSaveState();
 }
 
@@ -886,7 +863,6 @@ function markClean(savedRevision = dirtyRevision, savedGroupRevisions = new Map(
   if (dirtyRevision === savedRevision) {
     dirty = false;
     dirtyGroupRevisions.clear();
-    dirtyPetProfileIds.clear();
   }
   lastSavedAt = new Date().toLocaleTimeString();
   updateSaveState();
@@ -1751,7 +1727,6 @@ function escapeHtml(value) {
 function projectLabel(project) {
   if (!project) return "Project";
   const label = project.label || project.id || "Project";
-  if (project.kind === "codex_pets") return `🐾 ${label}`;
   if (project.kind === "frame_lite") return `◇ ${label}`;
   if (project.kind === "unity" || project.engine === "unity") return `◆ Unity · ${label}`;
   return label;
@@ -1768,15 +1743,7 @@ function renderProjectSelect() {
   if (active) localStorage.setItem("xsxbFrameTuner.project", active);
   els.projectSelect.value = active;
   els.projectSelect.disabled = !projects.length;
-  if (els.addCodexPet) {
-    els.addCodexPet.hidden = config?.projectKind !== "codex_pets";
-    els.addCodexPet.closest(".projectActions")?.classList.toggle("hasPetAction", config?.projectKind === "codex_pets");
-  }
-  const petMode = config?.projectKind === "codex_pets";
   const liteMode = config?.projectKind === "frame_lite";
-  document.querySelectorAll('[data-i18n="character"]').forEach((node) => { node.textContent = petMode ? t("pet") : t("character"); });
-  document.querySelectorAll('[data-i18n="group"]').forEach((node) => { node.textContent = petMode ? t("state") : t("group"); });
-  document.body.classList.toggle("codexPetsProject", petMode);
   document.body.classList.toggle("frameTunerLite", liteMode);
   document.body.classList.toggle("unityProject", config?.projectEngine === "unity" || config?.projectKind === "unity");
   if (els.projectBinding) {
@@ -2031,7 +1998,6 @@ async function loadConfig(options = {}) {
     dirty = false;
     dirtyRevision = 0;
     dirtyGroupRevisions.clear();
-    dirtyPetProfileIds.clear();
   }
   config = nextConfig;
   imageAssetVersion = String(Date.now());
@@ -2066,11 +2032,9 @@ async function loadConfig(options = {}) {
   yechengPropFrameOverrides = structuredClone(config.yechengPropTuning?.frame_visual_overrides || {});
   loadFrameImageAttachmentsFromProject();
   resetFrameAudioBindings();
-  if (config.projectKind !== "codex_pets") {
-    loadFrameAudioBindingsFromProject();
-    await loadFrameAudioBindingsFromDb();
-    if (ticket !== configLoadGeneration) return false;
-  }
+  loadFrameAudioBindingsFromProject();
+  await loadFrameAudioBindingsFromDb();
+  if (ticket !== configLoadGeneration) return false;
   if (config.projectEngine === "godot" && Object.keys(frameAudioBindings).length) {
     await syncFrameAudioBindingsToGame({ silent: true }).catch((error) => {
       status(t("boxSyncFailed", { message: error.message }));
@@ -2102,7 +2066,7 @@ async function loadConfig(options = {}) {
     const requestedFrame = clampInteger(preferredGroup ? Number(options.selection.frameIndex || 0) : Number(PAGE_PARAMS.get("frame") || 1) - 1, 0, Math.max(0, initialGroup.frames.length - 1));
     await selectGroup(initialGroup, { frameIndex: requestedFrame, throwOnError: true, preserveView: options.preserveView });
     if (ticket !== configLoadGeneration) return false;
-    if (PAGE_PARAMS.get("attackTrail") === "1" && config.projectKind !== "codex_pets") {
+    if (PAGE_PARAMS.get("attackTrail") === "1") {
       attackTrailEditor.enabled = true;
       attackTrailEditor.workspaceMode = "draw";
       attackTrailEditor.guidesVisible = false;
@@ -4707,7 +4671,7 @@ async function duplicateFrameAfter(index, group) {
 }
 
 async function changeFrameSequence(index, group, remove) {
-  if (!group || config?.projectKind === "codex_pets" || !group.profileId) return;
+  if (!group || !group.profileId) return;
   if (selectionLoading || projectOperationInFlight || saveInFlight || frameAssetOperationPending() || portableExportBusy()) return;
   if (remove) {
     if (config?.projectKind !== "frame_lite" || group.frames.length <= 1) return;
@@ -4787,7 +4751,7 @@ function renderFilmstripGroup(group, label) {
     const sourceLabel = Array.isArray(group.sourceFrameIndices) && group.sourceFrameIndices.length ? ` (src ${sourceFrameIndex(index, group) + 1})` : "";
     item.title = `${label}${index + 1} - ${frame.name}${sourceLabel}`;
     const canAdjustDuration = isCurrent && canEditFramePlayback(group) && !usesAttachedPlaybackTiming(group);
-    const canDuplicate = isCurrent && config?.projectKind !== "codex_pets" && Boolean(group.profileId);
+    const canDuplicate = isCurrent && Boolean(group.profileId);
     const showDelete = isCurrent && config?.projectKind === "frame_lite" && Boolean(group.profileId);
     const deleteLabel = language === "en" ? "Delete frame (keep source files)" : "删除本帧（保留素材文件）";
     const audioBadge = audioBinding
@@ -4820,7 +4784,7 @@ function renderFilmstripGroup(group, label) {
       };
       sfxBadge.addEventListener("click", removeSfx);
     }
-    const canDropOnFrame = isCurrent && Boolean(currentGroup) && config?.projectKind !== "codex_pets";
+    const canDropOnFrame = isCurrent && Boolean(currentGroup);
     for (const eventName of ["dragenter", "dragover"]) {
       item.addEventListener(eventName, (event) => {
         if (!canDropOnFrame) return;
@@ -6599,65 +6563,6 @@ async function ensureCollisionBoxOverridesForSave(changedGroupKeys = null) {
   }
 }
 
-function codexPetProfile(profileId) {
-  return (config?.profiles || []).find((profile) => profile.id === profileId && profile.pet) || null;
-}
-
-async function composeCodexPetAtlas(profileId) {
-  const groups = (config?.groups || []).filter((group) => group.profileId === profileId);
-  if (!groups.length) return "";
-  const canvas = document.createElement("canvas");
-  canvas.width = 1536;
-  canvas.height = Number(codexPetProfile(profileId)?.pet?.atlasHeight || 1872);
-  const context = canvas.getContext("2d");
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  context.imageSmoothingEnabled = true;
-  for (const group of groups) {
-    const groupImages = await loadImagesForBoxGeneration(group);
-    for (let index = 0; index < group.frames.length; index += 1) {
-      const frame = group.frames[index];
-      const crop = frame.crop;
-      const img = groupImages[index];
-      if (!crop || !img) continue;
-      const transform = renderTransformForGroup(frameTransform(index, group), group);
-      const runtimeBaseScale = runtimeBaseScaleForGroup(index, group, groupImages);
-      const scaleX = runtimeBaseScale * Number(transform.scaleX || transform.scale || 1);
-      const scaleY = runtimeBaseScale * Number(transform.scaleY || transform.scale || 1);
-      const cellX = Number(crop.x || 0);
-      const cellY = Number(crop.y || 0);
-      const cellWidth = Number(crop.width || 192);
-      const cellHeight = Number(crop.height || 208);
-      const offsetX = Number(transform.offset?.x || 0) * runtimeBaseScale;
-      const offsetY = Number(transform.offset?.y || 0) * runtimeBaseScale;
-      context.save();
-      context.beginPath();
-      context.rect(cellX, cellY, cellWidth, cellHeight);
-      context.clip();
-      context.translate(
-        cellX + cellWidth * 0.5 + offsetX,
-        cellY + cellHeight + offsetY - img.height * scaleY * 0.5
-      );
-      context.rotate((Number(transform.rotation || 0) * Math.PI) / 180);
-      context.drawImage(img, -img.width * scaleX * 0.5, -img.height * scaleY * 0.5, img.width * scaleX, img.height * scaleY);
-      context.restore();
-    }
-  }
-  const data = canvas.toDataURL("image/webp", 1);
-  if (!data.startsWith("data:image/webp;base64,")) throw new Error(t("codexPetAtlasWrongSize"));
-  return data;
-}
-
-async function collectCodexPetExportsForSave() {
-  if (config?.projectKind !== "codex_pets") return [];
-  const exports = [];
-  for (const profileId of dirtyPetProfileIds) {
-    const profile = codexPetProfile(profileId);
-    if (!profile?.pet?.writable) continue;
-    exports.push({ profileId, data: await composeCodexPetAtlas(profileId) });
-  }
-  return exports;
-}
-
 function playbackChainGroup() {
   if (!els.chainGroupSelect) return null;
   return (config?.groups || []).find((group) => group.uiId === els.chainGroupSelect.value) || null;
@@ -6892,17 +6797,14 @@ async function save() {
     const savedGroupRevisions = new Map(dirtyGroupRevisions);
     const changedGroupKeysForSave = new Set(savedGroupRevisions.keys());
     await ensureCollisionBoxOverridesForSave(changedGroupKeysForSave);
-    const frameAudioBindingsForSave = config?.projectKind === "codex_pets" ? [] : await collectFrameAudioBindingsForSave();
+    const frameAudioBindingsForSave = await collectFrameAudioBindingsForSave();
     const frameImageAttachmentsForSave = collectFrameImageAttachmentsForSave();
-    const attackTrailsForSave = config?.projectKind === "codex_pets" ? undefined : attackTrailEditor?.serialize();
+    const attackTrailsForSave = attackTrailEditor?.serialize();
     const unityBakedFramesForSave = await collectUnityBakedFramesForSave(
       frameImageAttachmentsForSave,
       attackTrailsForSave,
       changedGroupKeysForSave
     );
-    const codexPetExportsForSave = await collectCodexPetExportsForSave();
-    const hadReadOnlyPetEdits = config?.projectKind === "codex_pets"
-      && [...dirtyPetProfileIds].some((profileId) => !codexPetProfile(profileId)?.pet?.writable);
     const res = await fetch("/api/save", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -6921,7 +6823,6 @@ async function save() {
         frame_playback_overrides: framePlaybackOverrides,
         attack_vfx_playback_overrides: vfxPlaybackOverrides,
         frame_box_overrides: frameBoxOverrides,
-        codex_pet_exports: codexPetExportsForSave,
         boss: {
           values: collectBossTuningValues(),
           boss_frame_visual_overrides: bossFrameOverrides,
@@ -6958,8 +6859,6 @@ async function save() {
     const result = await res.json().catch(() => ({}));
     if (result.configRevision) config.configRevision = result.configRevision;
     if (Array.isArray(result.warnings)) config.warnings = result.warnings;
-    const exportedCount = Array.isArray(result.codexPetExports) ? result.codexPetExports.length : 0;
-    if (exportedCount) await loadConfig();
     saveInFlight = false;
     markClean(savedRevision, savedGroupRevisions);
     const warningText = Array.isArray(result.warnings) && result.warnings.length
@@ -6973,8 +6872,6 @@ async function save() {
     if (result.engine === "unity" && result.unitySync?.processedBakedFrames >= 0) {
       saveMessages.push(`本次处理 ${result.unitySync.processedBakedFrames} 张 Unity 游戏帧（现有 ${result.unitySync.bakedFrameCount} 张）。`);
     }
-    if (exportedCount) saveMessages.push(t("codexPetExported", { count: exportedCount }));
-    if (hadReadOnlyPetEdits) saveMessages.push(t("codexPetBuiltInSaved"));
     if (warningText.trim()) saveMessages.push(warningText.trim());
     status(saveMessages.join("\n"));
   } catch (error) {
@@ -7055,55 +6952,12 @@ function collectYechengPropTuningValues() {
   return result;
 }
 
-function importCodexPetFromFile() {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/webp,.webp";
-  input.addEventListener("change", async () => {
-    const file = input.files?.[0];
-    if (!file) return;
-    try {
-      const data = await readFileAsDataUrl(file);
-      const size = await imageSizeFromDataUrl(data);
-      if (!/\.webp$/i.test(file.name || "") || size.width !== 1536 || ![1872, 2288].includes(size.height)) {
-        throw new Error(t("codexPetAtlasWrongSize"));
-      }
-      const suggestedName = String(file.name || "New Pet").replace(/\.webp$/i, "");
-      const displayName = window.prompt(t("codexPetNamePrompt"), suggestedName);
-      if (!displayName?.trim()) return;
-      const description = window.prompt(t("codexPetDescriptionPrompt"), "") || "";
-      const res = await fetch("/api/codex-pets/import", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          projectId: activeProjectId(),
-          displayName: displayName.trim(),
-          description: description.trim(),
-          data,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const result = await res.json();
-      selectedProfileId = result.imported?.profileId || "all";
-      localStorage.setItem("animationTuner.profile", selectedProfileId);
-      imageCache.clear();
-      await loadConfig();
-      resizeCanvas();
-      status(t("codexPetImported", { name: displayName.trim() }));
-    } catch (error) {
-      status(t("codexPetImportFailed", { message: error.message }));
-    }
-  }, { once: true });
-  input.click();
-}
-
 els.projectSelect.addEventListener("change", () => {
   activateProject(els.projectSelect.value).catch((error) => status(t("projectSwitchFailed", { message: error.message })));
 });
 els.refreshProject.addEventListener("click", () => {
   reloadWorkbench().catch((error) => status(t("projectRefreshFailed", { message: error.message })));
 });
-if (els.addCodexPet) els.addCodexPet.addEventListener("click", importCodexPetFromFile);
 if (els.languageSelect) {
   els.languageSelect.addEventListener("change", () => {
     language = els.languageSelect.value === "en" ? "en" : "zh";

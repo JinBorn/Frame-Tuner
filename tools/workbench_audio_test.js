@@ -75,14 +75,7 @@ try {
   fs.writeFileSync(path.join(root, "sheet", "audio", "beep.wav"), wav);
   assert.equal(importSheetAudio({ project: legacy, profileId: "hero", animationId: "attack", animationType: "actor", outputPath: "sheet.png", jsonPath: path.join(sheetFolder, "spritesheet.json"), source: sheetJson, liteStore, root }), 1);
   assert.equal(liteStore.readJson(liteStore.paths(legacy).frameAudio, [])[0].volume, 0.35);
-  assert.equal(service.capabilities().features.codexPetsToggle, false);
-  let enabled = false;
-  const main = createWorkbenchService({ root, codexPetsToggle: true, codexPets: () => enabled });
-  assert.equal(main.capabilities().features.codexPetsToggle, true);
-  assert.equal(main.capabilities().features.codexPets, false);
-  enabled = true;
-  assert.equal(main.capabilities().features.codexPets, true);
-  console.log("Workbench audio import checks passed: frame bindings, WAV bytes, origin, volume, preflight rejection, replacement and capability flags.");
+  console.log("Workbench audio import checks passed: frame bindings, WAV bytes, origin, volume, preflight rejection and replacement.");
 } finally {
   if (!path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep)) throw new Error("Unexpected cleanup path");
   fs.rmSync(root, { recursive: true, force: true });

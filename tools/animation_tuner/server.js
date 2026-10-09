@@ -20,15 +20,6 @@ const {
   sharedAttackTrailPresetPath,
 } = require("../attack_trail_presets");
 const { profileIdsForSceneText } = require("../scene_profiles");
-const {
-  ATLAS_HEIGHT_V2,
-  clearExportedPetTuning,
-  ensureCodexPetsProject,
-  exportCodexPet,
-  importCodexPet,
-  parseWebpSize,
-  syncCodexPetProject,
-} = require("../codex_pets");
 const { checkForUpdates, performUpdate } = require("../updater");
 const { withUtf8Charset } = require("../http_content_type");
 const { assertLocalRequest, readRequestBody: readBody, attachmentDisposition } = require("../http_security");
@@ -41,11 +32,9 @@ const ROOT = path.resolve(process.env.FRAME_TUNER_ROOT || path.join(__dirname, "
 const PUBLIC = path.join(__dirname, "public");
 const PORT = Number(process.env.PORT || 5179);
 const projectStore = createProjectStore(ROOT);
-const featureSettingsPath = path.join(ROOT, "data", "workbench_settings.json");
-let codexPetsEnabled = process.env.FRAME_TUNER_CODEX_PETS === "1" || projectStore.readJson(featureSettingsPath, {}).codexPets === true;
 function availableRegistry() {
   const registry = projectStore.readRegistry();
-  if (!codexPetsEnabled) registry.projects = registry.projects.filter((entry) => entry.kind !== "codex_pets");
+  registry.projects = registry.projects.filter((entry) => projectEngine(entry) !== "unsupported");
   if (!registry.projects.some((entry) => entry.id === registry.activeProjectId)) registry.activeProjectId = registry.projects[0]?.id || "";
   return registry;
 }
@@ -59,7 +48,7 @@ const neutralStore = {
   },
 };
 const neutralApp = createLiteApp({ root: ROOT, store: neutralStore });
-const workbench = createWorkbenchService({ root: ROOT, store: neutralStore, codexPets: () => codexPetsEnabled, codexPetsToggle: true });
+const workbench = createWorkbenchService({ root: ROOT, store: neutralStore });
 const UPDATE_TOKEN = crypto.randomBytes(24).toString("hex");
 let restartScheduled = false;
 
@@ -83,10 +72,6 @@ const SCENE_SKIP_DIRS = new Set([
   ...GDSCRIPT_SKIP_DIRS,
   ".import",
 ]);
-
-function ensureDataFiles() {
-  if (codexPetsEnabled) ensureCodexPetsProject(projectStore);
-}
 
 function send(res, status, body, contentType = "application/json") {
   const data = Buffer.isBuffer(body)
@@ -217,7 +202,6 @@ function normalizeManifest(raw) {
       bodyScale: Math.max(0.001, Number(profile.bodyScale ?? 1)),
       runtimeScale: Math.max(0.001, Number(profile.runtimeScale ?? 1)),
       supports: Array.isArray(profile.supports) ? profile.supports : DEFAULT_SUPPORTS,
-      pet: profile.pet && typeof profile.pet === "object" ? profile.pet : null,
       animations: Array.isArray(profile.animations) ? profile.animations : [],
     })),
   };
@@ -227,7 +211,7 @@ function projectFromRequest(projectId, options = {}) {
   let registry = availableRegistry();
   const requestedId = projectId ? projectStore.slug(projectId) : "";
   if (requestedId && !registry.projects.some((entry) => entry.id === requestedId)) {
-    const error = new Error(`Project not found or optional integration disabled: ${requestedId}`);
+    const error = new Error(`Project not found or unsupported: ${requestedId}`);
     error.status = 404; error.code = "project_not_found"; throw error;
   }
   if (options.activate && requestedId && registry.projects.some((entry) => entry.id === requestedId) && registry.activeProjectId !== requestedId) {
@@ -275,7 +259,6 @@ function readFrameAudioBindings(project) {
 }
 
 function readAttackTrails(project) {
-  if (project?.kind === "codex_pets") return EMPTY_ATTACK_TRAILS;
   projectStore.ensureProjectFiles(project);
   const local = normalizeAttackTrails(projectStore.readJson(projectStore.projectPaths(project).attackTrails, EMPTY_ATTACK_TRAILS));
   return attackTrailsWithSharedPresets(ROOT, project.id, local);
@@ -309,7 +292,6 @@ function profileForClient(profile) {
     scale_semantic: "character_group_frame",
     anchor_mode: "manifest_anchor_mode",
     supports: profile.supports,
-    pet: profile.pet,
   };
 }
 
@@ -362,7 +344,6 @@ function buildGroups(manifest, tuningFile) {
         profileId: profile.id,
         profileLabel: profile.label,
         profileKind: profile.kind,
-        profilePet: profile.pet,
         profileScaleSemantic: "character_group_frame",
         profileAnchorMode: String(animation.anchorMode || "canvas_bottom_center"),
         profileSupports: Array.isArray(animation.supports) ? animation.supports : profile.supports,
@@ -910,21 +891,6 @@ function validateFrameBoxCoverage(manifest, tuning) {
 }
 
 function validateProject(project, manifest, tuning = readTuningFile(project)) {
-  if (project?.kind === "codex_pets") {
-    const warnings = [...validateManifest(manifest)];
-    for (const profile of manifest.profiles || []) {
-      const firstFrame = (profile.animations || []).flatMap((animation) => animation.frames || [])[0];
-      const fullPath = safeResolve(ROOT, reslash(firstFrame?.path || ""));
-      if (!fullPath || !fs.existsSync(fullPath)) continue;
-      const size = parseWebpSize(fs.readFileSync(fullPath));
-      if (size.width !== 1536 || ![1872, ATLAS_HEIGHT_V2].includes(size.height)) {
-        warnings.push(`${profile.id}: Codex 宠物图集应为 1536x1872 (v1) 或 1536x2288 (v2)，当前是 ${size.width}x${size.height}。`);
-      }
-      const expectedAnimations = size.height === ATLAS_HEIGHT_V2 ? 10 : 9;
-      if ((profile.animations || []).length !== expectedAnimations) warnings.push(`${profile.id}: Codex 宠物动画组数量不完整。`);
-    }
-    return warnings;
-  }
   if (projectEngine(project) === "unity") {
     const warnings = [
       ...validateManifest(manifest),
@@ -1038,19 +1004,16 @@ function configResponse(projectId) {
       groups: [],
     };
   }
-  const codexPets = project.kind === "codex_pets"
-    ? syncCodexPetProject(ROOT, projectStore, project)
-    : { warnings: [] };
   const manifest = readManifest(project);
   const tuningFile = readTuningFile(project);
   const groups = buildGroups(manifest, tuningFile);
-  const warnings = [...codexPets.warnings, ...validateProject(project, manifest, tuningFile)];
+  const warnings = validateProject(project, manifest, tuningFile);
   if (!groups.length) {
     warnings.unshift("当前项目没有已导入的动画组。请先用 skill/import_frames/import_spriteframes 导入 PNG 序列或 SpriteFrames。");
   }
   const projectClient = projectStore.projectForClient(project);
   const bindingScope = bindingScopeForProject(registry, project);
-  const attackTrails = project.kind === "codex_pets" ? EMPTY_ATTACK_TRAILS : readAttackTrails(project);
+  const attackTrails = readAttackTrails(project);
   return {
     root: ROOT,
     workspaceRoot: projectStore.projectWorkspaceDir(project),
@@ -1182,7 +1145,6 @@ function saveFrameAudioBindings(payload, project) {
 }
 
 function saveAttackTrails(payload, project) {
-  if (project?.kind === "codex_pets") return EMPTY_ATTACK_TRAILS;
   const trails = normalizeAttackTrails(payload);
   for (const [key, segments] of Object.entries(trails.bindings)) {
     for (const segment of segments) {
@@ -1442,14 +1404,12 @@ function serveStatic(req, res, pathname) {
   return send(res, 200, fs.readFileSync(full), type);
 }
 
-ensureDataFiles();
-
 const server = http.createServer(async (req, res) => {
   try {
     assertLocalRequest(req);
     const parsed = new URL(req.url, "http://127.0.0.1");
     if (req.method === "POST") req.workbenchBody = await readBody(req);
-    if (req.method === "GET" && parsed.pathname === "/api/workbench/capabilities") return send(res, 200, capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true, manageProjects: true }));
+    if (req.method === "GET" && parsed.pathname === "/api/workbench/capabilities") return send(res, 200, capabilities({ manageProjects: true }));
     if (req.method === "POST" && parsed.pathname === "/api/workbench/projects") return send(res, 201, workbench.createProject(JSON.parse(req.workbenchBody)));
     if (req.method === "POST" && ["/api/workbench/projects/rename", "/api/workbench/projects/remove"].includes(parsed.pathname)) {
       const payload = JSON.parse(req.workbenchBody);
@@ -1473,14 +1433,6 @@ const server = http.createServer(async (req, res) => {
       const result = await require("../export_package").buildExportPackage(payload, { projectData: workbench.projectData(payload.projectId), root: ROOT });
       res.setHeader("content-disposition", attachmentDisposition(result.filename));
       return send(res, 200, result.buffer, "application/zip");
-    }
-    if (req.method === "POST" && parsed.pathname === "/api/workbench/codex-pets") {
-      const payload = JSON.parse(req.workbenchBody);
-      if (typeof payload.enabled !== "boolean") return send(res, 400, { error: "enabled must be a boolean", code: "invalid_feature" });
-      codexPetsEnabled = payload.enabled;
-      projectStore.writeJson(featureSettingsPath, { codexPets: codexPetsEnabled });
-      ensureDataFiles();
-      return send(res, 200, { ok: true, capabilities: capabilities({ codexPets: codexPetsEnabled, codexPetsToggle: true, manageProjects: true }), ...projectsResponse() });
     }
     const neutralRoutes = new Set(["/api/save", "/api/lite/settings", "/api/duplicate-frame", "/api/delete-frame", "/api/frame-audio", "/api/attack-trail-texture", "/api/frame-attachment-image", "/api/replace-frame", "/api/replace-animation"]);
     if (req.method === "POST" && neutralRoutes.has(parsed.pathname)) {
@@ -1509,7 +1461,6 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && parsed.pathname === "/api/projects") {
       const payload = JSON.parse(await readBody(req));
-      if (payload.kind === "codex_pets" && !codexPetsEnabled) return send(res, 400, { error: "Enable Codex Pets explicitly first.", code: "integration_disabled" });
       const registry = projectStore.addProject(payload);
       return send(res, 200, {
         ok: true,
@@ -1524,14 +1475,6 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         ...projectsResponse(),
       });
-    }
-    if (req.method === "POST" && parsed.pathname === "/api/codex-pets/import") {
-      if (!codexPetsEnabled) return send(res, 400, { error: "Enable Codex Pets explicitly first.", code: "integration_disabled" });
-      const payload = JSON.parse(await readBody(req));
-      const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
-      const imported = importCodexPet(project, payload);
-      syncCodexPetProject(ROOT, projectStore, project);
-      return send(res, 200, { ok: true, imported });
     }
     if (req.method === "GET" && parsed.pathname === "/api/config") {
       return send(res, 200, configResponse(parsed.searchParams.get("project")));
@@ -1601,19 +1544,9 @@ const server = http.createServer(async (req, res) => {
       }
       const hasAttackTrails = Object.prototype.hasOwnProperty.call(payload, "attack_trails")
         || Object.prototype.hasOwnProperty.call(payload, "attackTrails");
-      const attackTrails = project.kind === "codex_pets"
-        ? EMPTY_ATTACK_TRAILS
-        : hasAttackTrails
-          ? saveAttackTrails(payload.attack_trails || payload.attackTrails || EMPTY_ATTACK_TRAILS, project)
-          : readAttackTrails(project);
-      const codexPetExports = [];
-      if (project.kind === "codex_pets") {
-        for (const entry of Array.isArray(payload.codex_pet_exports) ? payload.codex_pet_exports : []) {
-          codexPetExports.push(exportCodexPet(projectStore, project, entry));
-        }
-        clearExportedPetTuning(projectStore, project, codexPetExports.map((entry) => entry.profileId));
-        syncCodexPetProject(ROOT, projectStore, project);
-      }
+      const attackTrails = hasAttackTrails
+        ? saveAttackTrails(payload.attack_trails || payload.attackTrails || EMPTY_ATTACK_TRAILS, project)
+        : readAttackTrails(project);
       const engine = projectEngine(project);
       const changedGroups = Array.isArray(payload.changed_groups || payload.changedGroups)
         ? (payload.changed_groups || payload.changedGroups).map(String).filter(Boolean)
@@ -1638,14 +1571,12 @@ const server = http.createServer(async (req, res) => {
         godotSync,
         unitySync,
         runtimeProjectIdFiles,
-        codexPetExports,
         warnings: validateProject(project, readManifest(project)),
       });
     }
     if (req.method === "POST" && parsed.pathname === "/api/attack-trail-texture") {
       const payload = JSON.parse(await readBody(req));
       const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
-      if (project?.kind === "codex_pets") return send(res, 400, { error: "Codex Pets 项目不支持攻击拖尾。" });
       return send(res, 200, { ok: true, texture: saveAttackTrailTexture(ROOT, projectStore, project, payload) });
     }
     if (req.method === "POST" && parsed.pathname === "/api/frame-audio") {

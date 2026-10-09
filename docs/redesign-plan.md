@@ -1,5 +1,7 @@
 # Frame Tuner 通用化改版
 
+> 2026-10-10 状态更新：Codex Pets 功能已移除，旧本地文件保留；下文涉及该功能的选择与计划保留为当时范围记录。当前支持范围见 [README](../README.md)。
+
 状态：首期改版已实现，2026-10-06 完成 Windows 浏览器闭环与 Cocos Creator 3.8.8 独立演示构建、运行验收；Agent 范围包含 DeepSeek Harness。实际验证范围与剩余边界见 [验收记录](verification-2026-10-06.md)。
 
 ## 目标

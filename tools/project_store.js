@@ -101,6 +101,14 @@ function projectEngine(project) {
   return adapterForProject(project).engine;
 }
 
+function assertSupportedProject(project) {
+  if (projectEngine(project) !== "unsupported") return;
+  const error = new Error(`Unsupported project kind: ${project.kind || project.engine}`);
+  error.status = 400;
+  error.code = "unsupported_engine";
+  throw error;
+}
+
 function bindingScopeForProject(registry, project) {
   const dataDir = reslash(project?.dataDir || "").replace(/\/+$/, "").toLowerCase();
   const matches = (Array.isArray(registry?.projects) ? registry.projects : [])
@@ -141,14 +149,17 @@ function defaultProject() {
 }
 
 function projectDataDir(root, project) {
+  assertSupportedProject(project);
   return safeResolve(root, project?.dataDir) || path.join(root, "data", "projects", project.id);
 }
 
 function projectWorkspaceDir(root, project) {
+  assertSupportedProject(project);
   return safeResolve(root, project?.workspaceDir) || path.join(root, "workspace", "projects", project.id);
 }
 
 function projectPaths(root, project) {
+  assertSupportedProject(project);
   const dataDir = projectDataDir(root, project);
   return {
     dataDir,
@@ -198,12 +209,15 @@ function ensureProjectFiles(root, project) {
 function normalizeProject(raw, usedIds, fallback) {
   const source = raw && typeof raw === "object" ? raw : {};
   const id = uniqueId(source.id || source.label || fallback, usedIds);
+  const kind = String(source.kind || source.engine || "godot").toLowerCase();
+  // Retired or unknown integrations keep their original metadata for recovery.
+  // They are excluded from authoring and never initialize their data folders.
+  if (!ADAPTERS[kind]) return { ...source, id, kind };
   return {
     id,
     label: String(source.label || source.name || id),
-    kind: String(source.kind || source.engine || "godot").toLowerCase(),
+    kind,
     projectRoot: String(source.projectRoot || source.root || ""),
-    petRoot: String(source.petRoot || ""),
     dataDir: reslash(source.dataDir || `data/projects/${id}`),
     workspaceDir: reslash(source.workspaceDir || `workspace/projects/${id}`),
   };
@@ -215,12 +229,13 @@ function normalizeRegistry(raw) {
   // "default" is also a valid authored project ID, not evidence of a placeholder.
   const projects = Array.isArray(source.projects) ? source.projects : [];
   const normalizedProjects = projects.map((project, index) => normalizeProject(project, usedIds, index === 0 ? DEFAULT_PROJECT_ID : `project_${index + 1}`));
+  const availableProjects = normalizedProjects.filter((project) => projectEngine(project) !== "unsupported");
   const requestedActiveId = source.activeProjectId || normalizedProjects[0]?.id
     ? slug(source.activeProjectId || normalizedProjects[0]?.id, DEFAULT_PROJECT_ID)
     : "";
-  const activeProjectId = normalizedProjects.some((project) => project.id === requestedActiveId)
+  const activeProjectId = availableProjects.some((project) => project.id === requestedActiveId)
     ? requestedActiveId
-    : normalizedProjects[0]?.id || "";
+    : availableProjects[0]?.id || "";
   return {
     schemaVersion: 1,
     activeProjectId,
@@ -246,30 +261,29 @@ function createProjectStore(root) {
       throw error;
     }
     const registry = normalizeRegistry(raw);
-    for (const project of registry.projects) ensureProjectFiles(root, project);
+    for (const project of registry.projects) if (projectEngine(project) !== "unsupported") ensureProjectFiles(root, project);
     if (!registryExists || JSON.stringify(raw) !== JSON.stringify(registry)) writeJson(projectsPath, registry);
     return registry;
   }
 
   function writeRegistry(registry) {
     const normalized = normalizeRegistry(registry);
-    for (const project of normalized.projects) ensureProjectFiles(root, project);
+    for (const project of normalized.projects) if (projectEngine(project) !== "unsupported") ensureProjectFiles(root, project);
     writeJson(projectsPath, normalized);
     return normalized;
   }
 
   function resolveProject(registry, projectId) {
-    if (projectId) return registry.projects.find((project) => project.id === slug(projectId, DEFAULT_PROJECT_ID));
-    const requested = projectId ? slug(projectId, DEFAULT_PROJECT_ID) : registry.activeProjectId;
-    return registry.projects.find((project) => project.id === requested)
-      || registry.projects.find((project) => project.id === registry.activeProjectId)
-      || registry.projects[0];
+    const projects = registry.projects.filter((project) => projectEngine(project) !== "unsupported");
+    if (projectId) return projects.find((project) => project.id === slug(projectId, DEFAULT_PROJECT_ID));
+    return projects.find((project) => project.id === registry.activeProjectId) || projects[0];
   }
 
   function setActiveProject(projectId) {
     const registry = readRegistry();
     const project = registry.projects.find((entry) => entry.id === slug(projectId, DEFAULT_PROJECT_ID));
     if (!project) throw new Error(`Project not found: ${projectId}`);
+    assertSupportedProject(project);
     registry.activeProjectId = project.id;
     return writeRegistry(registry);
   }
@@ -277,6 +291,8 @@ function createProjectStore(root) {
   function addProject(payload = {}) {
     const registry = readRegistry();
     let projectRoot = String(payload.projectRoot || payload.root || "").trim().replace(/^["']|["']$/g, "");
+    const kind = String(payload.kind || payload.engine || (projectRoot ? "godot" : "frame_lite")).toLowerCase();
+    assertSupportedProject({ kind });
     if (projectRoot) {
       projectRoot = path.resolve(projectRoot);
       if (!fs.existsSync(projectRoot) || !fs.statSync(projectRoot).isDirectory()) {
@@ -287,13 +303,12 @@ function createProjectStore(root) {
     if (projectRoot) {
       const existingByRoot = registry.projects.find((project) => samePath(project.projectRoot, projectRoot));
       if (existingByRoot) {
+        assertSupportedProject(existingByRoot);
         registry.activeProjectId = existingByRoot.id;
         return writeRegistry(registry);
       }
     }
 
-    const kind = String(payload.kind || payload.engine || (projectRoot ? "godot" : "frame_lite")).toLowerCase();
-    if (!ADAPTERS[kind]) throw new Error(`Unsupported project kind: ${kind}`);
     const detectedName = kind === "unity" ? unityProjectName(projectRoot) : godotProjectName(projectRoot);
     const label = String(payload.label || payload.name || payload.id || detectedName || (projectRoot ? path.basename(projectRoot) : "") || "New Project").trim() || "New Project";
     const usedIds = new Set(registry.projects.map((project) => project.id));
@@ -310,7 +325,6 @@ function createProjectStore(root) {
       label,
       kind,
       projectRoot,
-      petRoot: String(payload.petRoot || ""),
       dataDir: `data/projects/${id}`,
       workspaceDir: `workspace/projects/${id}`,
     };
@@ -323,7 +337,7 @@ function createProjectStore(root) {
     const registry = readRegistry();
     const project = registry.projects.find((entry) => entry.id === projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
-    if (project.kind === "codex_pets") throw new Error("Manage Codex Pets through the optional integration switch.");
+    assertSupportedProject(project);
     if (label !== undefined) {
       if (typeof label !== "string" || !label.trim()) throw new Error("A project name is required.");
       project.label = label.trim();
@@ -345,7 +359,6 @@ function createProjectStore(root) {
       engine: projectEngine(project),
       capabilities: adapterForProject(project),
       projectRoot: project.projectRoot,
-      petRoot: project.petRoot || "",
       dataDir: reslash(project.dataDir),
       workspaceDir: reslash(project.workspaceDir),
       dataPath: paths.dataDir,

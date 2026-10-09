@@ -216,7 +216,7 @@ function createWorkbenchService(options = {}) {
   const pathsFor = (project) => store.projectPaths ? store.projectPaths(project) : store.paths(project);
   const resolveProject = (id) => {
     const registry = store.readRegistry();
-    const project = registry.projects.find((entry) => entry.id === String(id || registry.activeProjectId));
+    const project = registry.projects.find((entry) => entry.id === String(id || registry.activeProjectId) && projectEngine(entry) !== "unsupported");
     if (!project) fail(`Project not found: ${id || "(none)"}`, "project_not_found", 404);
     return project;
   };
@@ -242,7 +242,7 @@ function createWorkbenchService(options = {}) {
     }
     return result;
   };
-  const getCapabilities = () => capabilities({ manageProjects: typeof store.renameProject === "function", codexPets: typeof options.codexPets === "function" ? options.codexPets() : options.codexPets === true, codexPetsToggle: options.codexPetsToggle === true });
+  const getCapabilities = () => capabilities({ manageProjects: typeof store.renameProject === "function" });
   function createProject(payload = {}) {
     const label = String(payload.label || payload.id || "").trim();
     if (!label) fail("A project name is required.", "invalid_project");
@@ -428,7 +428,7 @@ function createWorkbenchService(options = {}) {
     commitImportFiles(writes.map(([file, value]) => [file, `${JSON.stringify(value, null, 2)}\n`]));
     return { ok: true, projectId: data.project.id, profileId: profile.id, animationId: animation.id, removed: true, remainingAnimations: profile.animations.length };
   }
-  return { root, store, capabilities: getCapabilities, createProject, importAnimation, renameAnimation, removeAnimation, resolveProject, projectData, listProjects: () => store.readRegistry().projects.map(store.projectForClient) };
+  return { root, store, capabilities: getCapabilities, createProject, importAnimation, renameAnimation, removeAnimation, resolveProject, projectData, listProjects: () => store.readRegistry().projects.filter((project) => projectEngine(project) !== "unsupported").map(store.projectForClient) };
 }
 
 module.exports = { createWorkbenchService, pngBuffer, sheetFrames, sheetOrigin, prepareSheetAudio, resolveWorkbenchAsset, commitImportFiles };

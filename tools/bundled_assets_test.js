@@ -6,7 +6,6 @@ const path = require("node:path");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "frame-tuner-bundled-assets-"));
 process.env.FRAME_TUNER_ROOT = root;
-delete process.env.FRAME_TUNER_CODEX_PETS;
 const { server, workbench } = require("./animation_tuner/server");
 const { createLiteApp } = require("./frame_tuner_lite/server");
 const lite = createLiteApp({ root });

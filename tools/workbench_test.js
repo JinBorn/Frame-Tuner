@@ -55,13 +55,6 @@ async function run() {
   assert.equal(JSON.parse(batchCli.stdout).frameCount, 1);
 
   process.env.FRAME_TUNER_ROOT = tempRoot;
-  delete process.env.FRAME_TUNER_CODEX_PETS;
-  const originalReaddir = fs.readdirSync;
-  const codexReads = [];
-  fs.readdirSync = function tracked(directory, ...args) {
-    if (String(directory).includes(".codex")) codexReads.push(String(directory));
-    return originalReaddir.call(this, directory, ...args);
-  };
   const { server } = require("./animation_tuner/server");
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
@@ -75,10 +68,12 @@ async function run() {
     assert.ok(config.liteSettings);
     assert.equal(config.groups.length, 2);
     const caps = await (await fetch(`${url}/api/workbench/capabilities`)).json();
-    assert.equal(caps.features.codexPets, false);
+    assert.equal(caps.defaultKind, "frame_lite");
+    for (const feature of ["manageProjects", "createProject", "importPng", "importSheet", "portableExport"]) {
+      assert.equal(caps.features[feature], true, `Workbench supports ${feature}`);
+    }
     const registry = await (await fetch(`${url}/api/projects`)).json();
-    assert.equal(registry.projects.some((project) => project.kind === "codex_pets"), false);
-    assert.deepEqual(codexReads, [], "Default workbench does not inspect Codex home directories");
+    assert.ok(registry.projects.some((project) => project.id === created.projectId && project.kind === "frame_lite"));
     const saved = await post("/api/save", { projectId: created.projectId, configRevision: config.configRevision, values: { "profiles.hero.character.visual_size": 1.2 }, frame_playback_overrides: { "hero/walk:0": { duration: 2 } } });
     assert.equal(saved.status, 200, JSON.stringify(saved.data));
     const stale = await post("/api/save", { projectId: created.projectId, configRevision: config.configRevision, values: {} });
@@ -93,7 +88,6 @@ async function run() {
     assert.equal(blocked.data.code, "invalid_project_json");
     assert.equal(fs.readFileSync(data.paths.tuning, "utf8"), "broken again");
   } finally {
-    fs.readdirSync = originalReaddir;
     await new Promise((resolve) => server.close(resolve));
   }
 }

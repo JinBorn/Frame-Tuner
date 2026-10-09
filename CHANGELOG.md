@@ -10,6 +10,10 @@
 - Add portable frame-bound SFX to Frame Tuner Lite exports and restore those bindings when a Lite sprite sheet is imported again.
 - Make Lite export every playable source frame exactly once as a baked owner/attachment/trail composite, with authored frame durations retained as metadata.
 
+### Removed
+
+- Remove the Codex Pets adapter, discovery, import, and writeback controls. Existing local pet files are preserved, and legacy pet projects are no longer editable. Cocos, Godot, Unity, and supported Agent workflows remain available.
+
 ### Fixes
 
 - Preserve native source pixel density when baking Unity owner, attachment, and trail composites, compensate the bake density at runtime so authored size and anchors stay unchanged, and import baked textures without Unity compression or a 2048 px cap.

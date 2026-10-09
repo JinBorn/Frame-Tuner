@@ -11,7 +11,7 @@
   const animationDialog = byId("workbenchAnimationDialog");
   const removeAnimationDialog = byId("workbenchRemoveAnimationDialog");
   const replaceDialog = byId("workbenchReplaceDialog");
-  const state = { files: [], busy: false, featureBusy: false, ready: false, projectKind: "", capabilities: null, queued: false };
+  const state = { files: [], busy: false, ready: false, projectKind: "", capabilities: null, queued: false };
   const translations = {
     zh: {
       canvasTransformHint: "选工具后拖动画布；缩放、旋转时左右拖动。中键平移视图；浏览模式保留框体和挂件编辑。", canvasBrowse: "浏览", canvasMove: "移动", canvasScale: "缩放", canvasRotate: "旋转", previewSmooth: "平滑预览", previewPixel: "像素预览", numericTransformHint: "输入数值后按 Enter 或移开焦点应用；Esc 取消输入。",
@@ -44,8 +44,7 @@
       imported: "已导入 {count} 帧，可以开始调参。", created: "项目已创建，导入第一组动画开始创作。", reloadDeferred: "内容已写入；当前还有新的编辑，请保存后刷新动画列表。",
       exists: "此角色已有同名动作，请更换动作名称后再导入。", neutralOnly: "网页导入用于独立项目。请新建项目后导入；当前引擎项目继续保留原有接入方式。",
       close: "关闭", fileCount: "{count} 张 PNG · {size} MB", projectPlaceholder: "例如：森林冒险", requestFailed: "请求失败（{status}）",
-      independentProject: "独立项目", localAssets: "本地素材", optionalFeatures: "可选功能", petsDescription: "启用后读取本机 Codex 宠物素材，并在项目列表中显示。",
-      petsEnabled: "已启用 Codex Pets，可在项目列表中选择宠物。", petsDisabled: "已关闭 Codex Pets，宠物项目已从列表隐藏。", petsUpdating: "正在更新宠物功能…",
+      independentProject: "独立项目", localAssets: "本地素材",
     },
     en: {
       canvasTransformHint: "Drag to transform; drag horizontally to scale or rotate. Middle-drag pans. Browse keeps box and attachment editing.", canvasBrowse: "Browse", canvasMove: "Move", canvasScale: "Scale", canvasRotate: "Rotate", previewSmooth: "Smooth preview", previewPixel: "Pixel preview", numericTransformHint: "Press Enter or leave the field to apply. Esc cancels typing.",
@@ -78,8 +77,7 @@
       imported: "Imported {count} frames. Ready to fine-tune.", created: "Project created. Import your first animation to begin.", reloadDeferred: "Content was written. Save your new edits, then refresh the animation list.",
       exists: "This character already has an animation with that name. Choose a different animation name.", neutralOnly: "Web imports use independent projects. Create a new project to import assets; bound engine projects keep their existing import workflow.",
       close: "Close", fileCount: "{count} PNG images · {size} MB", projectPlaceholder: "For example: Forest Adventure", requestFailed: "Request failed ({status})",
-      independentProject: "Independent project", localAssets: "Local assets", optionalFeatures: "Optional features", petsDescription: "When enabled, local Codex pet assets are read and shown in the project list.",
-      petsEnabled: "Codex Pets enabled. Select a pet project from the project list.", petsDisabled: "Codex Pets disabled. Pet projects are hidden from the list.", petsUpdating: "Updating pet integration…",
+      independentProject: "Independent project", localAssets: "Local assets",
     },
   };
   const t = (key, values = {}) => {
@@ -179,7 +177,7 @@
   }
 
   function openProjectDialog() {
-    if (state.busy || state.featureBusy) return;
+    if (state.busy) return;
     if (window.FrameTunerPortable?.busy?.()) { notice(t("exporting")); return; }
     showError("workbenchProjectError", "");
     projectDialog.showModal();
@@ -187,7 +185,7 @@
   }
 
   function openImportDialog() {
-    if (state.busy || state.featureBusy) return;
+    if (state.busy) return;
     if (window.FrameTunerPortable?.busy?.()) { notice(t("exporting")); return; }
     if (!activeProjectId()) return openProjectDialog();
     if (state.projectKind && state.projectKind !== "frame_lite") {
@@ -202,9 +200,9 @@
   }
 
   byId("workbenchManageProject").addEventListener("click", () => {
-    if (state.busy || state.featureBusy || window.FrameTunerPortable?.busy?.()) return;
+    if (state.busy || window.FrameTunerPortable?.busy?.()) return;
     const project = window.FrameTunerWorkbench.projects().find((entry) => entry.id === activeProjectId());
-    if (!project || project.kind === "codex_pets") return;
+    if (!project) return;
     manageDialog.dataset.projectId = project.id;
     byId("workbenchManageName").value = project.label;
     showError("workbenchManageError", "");
@@ -232,7 +230,7 @@
   byId("workbenchRemoveProject").addEventListener("click", () => { void manageProject("remove"); });
 
   function animationManagementBusy(current = window.FrameTunerWorkbench?.current?.()) {
-    return state.busy || state.featureBusy || !current?.ready || current.saving || current.loading || current.exporting;
+    return state.busy || !current?.ready || current.saving || current.loading || current.exporting;
   }
 
   function openAnimationDialog(action) {
@@ -299,32 +297,6 @@
   byId("workbenchEmptyCreate").addEventListener("click", openProjectDialog);
   byId("workbenchImport").addEventListener("click", openImportDialog);
   byId("workbenchEmptyImport").addEventListener("click", openImportDialog);
-  byId("workbenchPetsToggle").addEventListener("click", async () => {
-    if (state.busy || state.featureBusy || state.capabilities?.features?.codexPetsToggle !== true) return;
-    const enabled = state.capabilities.features.codexPets !== true;
-    const message = byId("workbenchFeatureStatus");
-    state.featureBusy = true;
-    syncFeatureSwitch();
-    try {
-      const token = await acquireDiscardToken();
-      if (!token) return;
-      message.hidden = false;
-      message.textContent = t("petsUpdating");
-      const result = await request("/api/workbench/codex-pets", { enabled });
-      applyCapabilities(result.capabilities);
-      const selectedId = activeProjectId();
-      const nextId = result.projects?.some((project) => project.id === selectedId) ? selectedId : result.activeProjectId || "";
-      const text = t(enabled ? "petsEnabled" : "petsDisabled");
-      const loaded = await reloadAfterWrite(nextId, token, text);
-      message.textContent = loaded ? text : t("reloadDeferred");
-    } catch (error) {
-      message.hidden = false;
-      message.textContent = error.message;
-    } finally {
-      state.featureBusy = false;
-      syncFeatureSwitch();
-    }
-  });
   for (const dialog of [projectDialog, importDialog, manageDialog, animationDialog, removeAnimationDialog]) {
     dialog.addEventListener("cancel", (event) => { if (state.busy) event.preventDefault(); });
     dialog.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => { if (!state.busy) dialog.close(); }));
@@ -477,14 +449,14 @@
         button.className = "animationListButton";
         button.dataset.groupId = option.value;
         const current = window.FrameTunerWorkbench?.current?.();
-        button.disabled = Boolean(state.busy || state.featureBusy || current?.saving || current?.exporting);
+        button.disabled = Boolean(state.busy || current?.saving || current?.exporting);
         button.setAttribute("aria-current", String(option.value === groupSelect.value));
         button.title = option.textContent;
         button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="3"/><path d="m8 6 5 4-5 4V6Z"/></svg><span class="animationName"></span><span class="animationCount">›</span>';
         button.querySelector(".animationName").textContent = option.textContent;
         button.addEventListener("click", () => {
           if (window.FrameTunerPortable?.busy?.()) { notice(t("exporting")); return; }
-          if (state.busy || state.featureBusy) return;
+          if (state.busy) return;
           if (groupSelect.value === option.value) return;
           groupSelect.value = option.value;
           groupSelect.dispatchEvent(new Event("change", { bubbles: true }));
@@ -505,7 +477,7 @@
     renderAnimationList();
     const hasProject = Boolean(activeProjectId());
     byId("workbenchManageProject").hidden = state.capabilities?.features?.manageProjects !== true;
-    byId("workbenchManageProject").disabled = !hasProject || state.projectKind === "codex_pets";
+    byId("workbenchManageProject").disabled = !hasProject;
     const current = window.FrameTunerWorkbench?.current?.();
     if (current?.projectKind) state.projectKind = current.projectKind;
     byId("workbenchAnimationActions").hidden = !hasProject || state.projectKind !== "frame_lite";
@@ -541,18 +513,11 @@
     state.queued = true;
     queueMicrotask(syncShell);
   }
-  function syncFeatureSwitch() {
-    const features = state.capabilities?.features;
-    byId("workbenchOptionalFeatures").hidden = features?.codexPetsToggle !== true;
-    byId("workbenchPetsToggle").setAttribute("aria-checked", String(features?.codexPets === true));
-    byId("workbenchPetsToggle").disabled = state.featureBusy || features?.codexPetsToggle !== true;
-  }
   function applyCapabilities(capabilities) {
     if (!capabilities) return;
     state.capabilities = capabilities;
     byId("workbenchNewProject").disabled = capabilities.features?.createProject === false;
     byId("workbenchImport").disabled = capabilities.features?.importPng === false && capabilities.features?.importSheet === false;
-    syncFeatureSwitch();
     scheduleSync();
   }
   new MutationObserver(scheduleSync).observe(groupSelect, { subtree: true, childList: true });

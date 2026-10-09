@@ -678,15 +678,6 @@ body.unityProject .projectBinding {
   border-color: var(--accent-2);
 }
 
-.projectActions.hasPetAction {
-  grid-template-columns: 1fr 1fr;
-}
-
-body.codexPetsProject [data-panel="scene-scale"],
-body.codexPetsProject [data-panel="boxes"] {
-  display: none;
-}
-
 .wide {
   width: 100%;
   margin-top: 8px;
@@ -1490,7 +1481,6 @@ body.codexPetsProject [data-panel="boxes"] {
   color: var(--on-bright);
   background: var(--accent-2);
 }
-.codexPetsProject #attackTrailPanel { display: none !important; }
 
 @media (max-width: 960px) {
   .app { grid-template-columns: 1fr; }

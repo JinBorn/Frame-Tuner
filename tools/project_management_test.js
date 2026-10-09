@@ -17,9 +17,11 @@ async function test() {
     const sample = createSamplePackage();
     service.importAnimation({ projectId: first, profileId: 'hero', animationId: 'idle', fps: 12,
       files: [{name:'frame.png', data:'data:image/png;base64,'+sample.files.get('frames/demo_0.png').toString('base64')}] });
-    const registry = service.store.readRegistry();
+    const registryPath = path.join(root, 'data', 'projects.json');
+    const readStoredRegistry = () => JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+    const registry = readStoredRegistry();
     registry.projects.push({id:'codex_pets',kind:'codex_pets',label:'Hidden pets',dataDir:'data/projects/codex_pets',workspaceDir:'workspace/projects/codex_pets'});
-    service.store.writeRegistry(registry);
+    fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
     const data = service.projectData(first);
     const before = fs.readFileSync(data.paths.tuning);
     const framePath = path.join(root,data.manifest.profiles[0].animations[0].frames[0].path);
@@ -60,7 +62,7 @@ async function test() {
     await page.waitForFunction(id=>window.FrameTunerWorkbench.current().projectId===id,second);
     assert.deepEqual(fs.readFileSync(data.paths.tuning),before);
     assert.deepEqual(fs.readFileSync(framePath),frameBytes);
-    assert.ok(service.store.readRegistry().projects.some(p=>p.id==='codex_pets'),'Hidden integration remains registered');
+    assert.ok(readStoredRegistry().projects.some(p=>p.id==='codex_pets'),'Legacy hidden project remains on disk');
     await page.locator('#workbenchManageProject').click();
     await page.locator('#workbenchRemoveProject').click();
     await page.waitForFunction(()=>!window.FrameTunerWorkbench.current().projectId && !document.querySelector('#workbenchManageDialog').open);

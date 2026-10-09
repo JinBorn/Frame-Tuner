@@ -5,7 +5,7 @@ This is an optional adapter for an explicitly selected Unity project. A neutral 
 ## Binding and authority
 
 - Bind Unity projects with `kind: "unity"` and an exact Unity project root containing `Assets/` and `ProjectSettings/ProjectVersion.txt`.
-- Keep Godot, Unity, Lite, and Codex Pets as explicit project kinds. Never run Godot scanners or sync against a Unity root.
+- Keep Godot, Unity, and Lite as explicit project kinds. Never run Godot scanners or sync against a Unity root.
 - Continue using `animation_manifest.json`, `animation_tuning.json`, `frame_audio_bindings.json`, `frame_image_attachments.json`, and `attack_trails.json` as the authority. A migration may deliberately point the Godot and Unity bindings at the same Tuner data directory.
 - Never make Unity assets reference the Tuner checkout, Downloads, Temp, or a Godot `res://` path.
 

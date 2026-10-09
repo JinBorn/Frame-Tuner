@@ -2,7 +2,7 @@
 
 本地帧动画调参工作台：导入 PNG 序列或 Sprite Sheet，在网页里调整变换、帧时长、图层、碰撞框元数据、音效与攻击拖尾，再导出透明序列、Sheet + JSON 或 Cocos Creator 3.8.8 播放包。
 
-默认项目不绑定游戏引擎，也不需要 Agent。需要自动处理时，同一份 skill 可供 Codex、Claude Code、Cursor、DeepSeek Harness 及能读文件、执行命令的其他 Agent 使用。Godot、Unity 和 Codex Pets 保留为可选适配能力。
+默认项目不绑定游戏引擎，也不需要 Agent。需要自动处理时，同一份 skill 可供 Codex、Claude Code、Cursor、DeepSeek Harness 及能读文件、执行命令的其他 Agent 使用。Godot 和 Unity 保留为可选适配能力。
 
 本仓库基于 [sparklecatta-lang/XSXB-Frame-Tuner](https://github.com/sparklecatta-lang/XSXB-Frame-Tuner) 修改，当前仓库与更新源为 [JinBorn/Frame-Tuner](https://github.com/JinBorn/Frame-Tuner)。
 
@@ -21,7 +21,7 @@ npm start
 
 双击启动后请保留命令行窗口，它会显示服务日志。退出时先在网页保存，再按 `Ctrl+C` 或关闭该窗口；只关闭浏览器标签页不会停止服务。旧 Lite 启动脚本也采用相同方式。
 
-主工作台在项目选择框下提供“管理项目”：可重命名或确认后从列表移除。移除保留本地素材及调参文件；同名新建会使用新目录，不会自动恢复旧项目。重命名不改变项目 ID、文件路径或未保存编辑。Codex Pets 仍通过“可选功能”开关管理。
+主工作台在项目选择框下提供“管理项目”：可重命名或确认后从列表移除。移除保留本地素材及调参文件；同名新建会使用新目录，不会自动恢复旧项目。重命名不改变项目 ID、文件路径或未保存编辑。
 
 独立项目的“动作”标题旁提供铅笔和垃圾桶图标，用于重命名、移除当前选中的动作。重命名只改变显示名称，导出动作 ID 和素材路径保持稳定；移除会清理该动作的调参及音效、挂件等绑定，保留原始素材文件。两种操作都会先保存当前编辑；移除需确认且不能撤销。仍被其他动作作为主体引用时会提示先处理依赖。
 
@@ -74,13 +74,13 @@ node tools/install_skill.js --client deepseek-harness --project-root "D:/Games/M
 
 `--client` 还支持 `codex`、`claude-code`、`cursor`；其他配置使用 `--target <完整skill目录>`。默认项目级，用户级需 `--scope user`。安装器不覆盖已有非托管目录或手工修改的指令。四种客户端的路径、安装/升级和调用方式见 [Agent 接入](docs/agents.md)。
 
-## 已有项目与可选功能
+## 已有项目与旧版 Lite
 
 新项目使用主工作台的中立存储。已有 Godot/Unity 绑定保留原来的游戏根目录与数据，同步仅作用于被明确绑定的引擎项目。Godot 校验工具为 `tools/validate_import.js`，Unity 为 `tools/validate_unity.js`；只有需要完整 gameplay 验证时才使用对应的严格游戏接线检查。
 
 旧版 Lite 仍使用独立的项目列表与目录，可通过 `npm run start:lite` 或 `start_xsxb_frame_tuner_lite.bat` 打开 **http://127.0.0.1:5180**。它不会自动迁移或覆盖主工作台项目。
 
-Codex Pets 默认不扫描。在左侧“可选功能”中明确启用后才能发现本机宠物；兼容 v1/v2 WebP 图集，自定义宠物回写保留原图备份，内置宠物只读。启动时也可设置 `FRAME_TUNER_CODEX_PETS=1`。这只是可选素材适配器，工作台和其他 Agent 不依赖 Codex 应用。
+Codex Pets 功能已移除。旧本地宠物文件仍保留，旧宠物项目不再提供编辑。
 
 ## 本地数据与更新
 
