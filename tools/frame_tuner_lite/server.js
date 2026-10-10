@@ -648,10 +648,19 @@ const requestHandler = async (req, res) => {
       const result = url.pathname.endsWith("/rename") ? workbench.renameAnimation(payload) : workbench.removeAnimation(payload);
       return send(res, 200, { ...result, configRevision: projectConfigRevision(project) });
     }
+    if (req.method === "POST" && url.pathname === "/api/workbench/compress-png") {
+      const payload = JSON.parse(await readBody(req));
+      workbench.projectData(payload.projectId);
+      const files = require("../export_package").decodeFiles([{ path: "export.png", data: payload.data }]);
+      const report = await require("../png_compression").compressRuntimePngs(files, ["export.png"], payload.pngQuality);
+      res.setHeader("x-frame-tuner-png-compression", JSON.stringify(report));
+      return send(res, 200, files.get("export.png"), "image/png");
+    }
     if (req.method === "POST" && url.pathname === "/api/workbench/export") {
       const payload = JSON.parse(await readBody(req));
       const result = await require("../export_package").buildExportPackage(payload, { projectData: workbench.projectData(payload.projectId), root: ROOT });
       res.setHeader("content-disposition", attachmentDisposition(result.filename));
+      res.setHeader("x-frame-tuner-png-compression", JSON.stringify(result.pngCompression));
       return send(res, 200, result.buffer, "application/zip");
     }
     if (req.method === "GET" && url.pathname === "/api/update-status") return send(res, 200, { updateAvailable: false, lite: true });

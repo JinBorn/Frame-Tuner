@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const zlib = require("node:zlib");
+const { normalizePngQuality, compressRuntimePngs } = require("./png_compression");
 
 const SCHEMA = "frame-tuner-package-v1";
 const MAX_BYTES = 256 * 1024 * 1024;
@@ -186,9 +187,11 @@ function createZip(files) {
 async function buildExportPackage(payload, options = {}) {
   const format = payload.format || "sequence";
   if (!["sequence", "sheet", "cocos"].includes(format)) throw new Error(`Unsupported export format: ${format}`);
+  const pngQuality = normalizePngQuality(payload.pngQuality);
   let files = decodeFiles(payload.files);
   let manifest = structuredClone(payload.manifest);
   validatePackage(manifest, files);
+  let imagePaths = [...new Set(manifest.animations.flatMap(animation => animation.frames.map(frame => frame.path)))];
   manifest.generator = { ...manifest.generator, name: "Frame Tuner", version: require("../package.json").version };
   const archived = archiveSource(options.projectData, files, options);
   if (archived) {
@@ -213,9 +216,14 @@ async function buildExportPackage(payload, options = {}) {
     const result = await buildCocosPackage(manifest, files, { demo: true });
     files = result.files;
     manifest = result.manifest || manifest;
+    const resourceRoot = `assets/resources/${path.posix.dirname(manifest.resourcePath)}`;
+    imagePaths = imagePaths.map(name => `${resourceRoot}/${name}`);
   }
+  // For Cocos, only the images under assets/resources are optimized. Even the
+  // baked reference PNGs inside frame-tuner-source remain byte-for-byte intact.
+  const pngCompression = await compressRuntimePngs(files, imagePaths, pngQuality);
   const filename = `${String(manifest.projectId || "animation").replace(/[^\p{L}\p{N}_.-]/gu, "_")}_${format}.zip`;
-  return { manifest, files, filename, buffer: createZip(files) };
+  return { manifest, files, filename, pngCompression, buffer: createZip(files) };
 }
 
 function writePackageDirectory(directory, files) {

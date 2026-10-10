@@ -8,7 +8,7 @@ cd Frame-Tuner
 npm install
 ```
 
-要求 Node.js 20+。导入和校验只用 Node；CLI 图片合成导出还需要本机 Chrome、Edge 或 Chromium，由 `playwright-core` 在独立无头会话中启动，不需要 Agent 操作网页或系统目录选择器。
+要求 Node.js 20.9+。导入和校验只用 Node；CLI 图片合成导出还需要本机 Chrome、Edge 或 Chromium，由 `playwright-core` 在独立无头会话中启动，不需要 Agent 操作网页或系统目录选择器。PNG 压缩依赖 `sharp`，与其他依赖一起通过 `npm install` 安装；导出时可选 `--png-quality 1..100`，默认 100 无损，源图不变。
 
 ## 选择安装位置
 

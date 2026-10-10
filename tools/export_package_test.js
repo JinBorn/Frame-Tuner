@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const zlib = require("node:zlib");
+const sharp = require("sharp");
 const { createSamplePackage } = require("./cocos/sample_package");
 const { buildExportPackage, archiveSource, crc32, safePackagePath, writePackageDirectory } = require("./export_package");
 const { createWorkbenchService } = require("./workbench_service");
@@ -63,7 +64,9 @@ async function test() {
     const before = fs.readFileSync(data.paths.manifest);
     const result = await buildExportPackage({ format: "sequence", manifest: sample.pkg, files: sample.files }, { root, projectData: data });
     const unpacked = unzip(result.buffer);
-    assert.deepEqual(unpacked.get("frames/demo_2.png"), sample.files.get("frames/demo_2.png"));
+    const exportedPixels = await sharp(unpacked.get("frames/demo_2.png")).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const originalPixels = await sharp(sample.files.get("frames/demo_2.png")).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    assert.deepEqual(exportedPixels, originalPixels, "default runtime PNG compression preserves RGBA pixels and dimensions");
     assert.deepEqual(unpacked.get("audio/tick.wav"), sample.files.get("audio/tick.wav"));
     const manifest = JSON.parse(unpacked.get("manifest.json"));
     assert.equal(manifest.animations[0].frames[2].durationMs, 310);

@@ -4,6 +4,7 @@
 
 ### Features
 
+- Compress exported runtime PNGs with configurable quality (100 is lossless), report actual byte savings, and preserve all editable source images. ZIP, directory, Sheet, sequence, and Cocos runtime exports share the same encoder; CLI supports `--png-quality`.
 - Default newly added attack-trail sticks to path-only guides except for the current last stick, while preserving manually marked head frames.
 - Replace the split pre-stop and post-stop trail chase controls with total trail duration and tail/head speed ratio, shared by Full, Lite, exports, and Godot runtime.
 - Distinguish rendered attack-trail head frames from path-only guide sticks, with compact five-button stick controls shared by Full and Lite.

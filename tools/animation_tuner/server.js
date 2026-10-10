@@ -1428,10 +1428,19 @@ const server = http.createServer(async (req, res) => {
       if (projectEngine(project) !== "lite") return send(res, 400, { error: "Animation management requires an independent workspace.", code: "project_not_neutral" });
       return neutralApp.requestHandler(req, res);
     }
+    if (req.method === "POST" && parsed.pathname === "/api/workbench/compress-png") {
+      const payload = JSON.parse(req.workbenchBody);
+      workbench.projectData(payload.projectId);
+      const files = require("../export_package").decodeFiles([{ path: "export.png", data: payload.data }]);
+      const report = await require("../png_compression").compressRuntimePngs(files, ["export.png"], payload.pngQuality);
+      res.setHeader("x-frame-tuner-png-compression", JSON.stringify(report));
+      return send(res, 200, files.get("export.png"), "image/png");
+    }
     if (req.method === "POST" && parsed.pathname === "/api/workbench/export") {
       const payload = JSON.parse(req.workbenchBody);
       const result = await require("../export_package").buildExportPackage(payload, { projectData: workbench.projectData(payload.projectId), root: ROOT });
       res.setHeader("content-disposition", attachmentDisposition(result.filename));
+      res.setHeader("x-frame-tuner-png-compression", JSON.stringify(result.pngCompression));
       return send(res, 200, result.buffer, "application/zip");
     }
     const neutralRoutes = new Set(["/api/save", "/api/lite/settings", "/api/duplicate-frame", "/api/delete-frame", "/api/frame-audio", "/api/attack-trail-texture", "/api/frame-attachment-image", "/api/replace-frame", "/api/replace-animation"]);

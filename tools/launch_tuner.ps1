@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $node = Get-Command node -ErrorAction SilentlyContinue
 if (-not $node) {
-  Write-Error "Node.js was not found in PATH. Install Node.js 20 or newer first."
+  Write-Error "Node.js was not found in PATH. Install Node.js 20.9 or newer first."
   exit 1
 }
 

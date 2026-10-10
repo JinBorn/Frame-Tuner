@@ -61,21 +61,28 @@ async function test() {
     await page.evaluate(() => window.XsxbFrameTunerLite.selectGroup(window.XsxbFrameTunerLite.current().groupId, { frameIndex: 1 }));
     await page.locator("#portablePadding").fill("37");
     await page.locator("#portableColumns").fill("3");
+    assert.equal(await page.locator("#portablePngQuality").inputValue(), "100", "Runtime PNG export defaults to lossless quality");
+    await page.locator("#portablePngQuality").fill("73");
     await page.locator("#portableDestination").selectOption("directory");
     await page.evaluate(() => { window.originalPaddingControl = document.querySelector("#portablePadding"); });
     await page.locator('[data-language="en"]').click();
     await page.waitForFunction(() => document.querySelector("#portableExportPanel h2").textContent === "Export package");
-    assert.deepEqual(await page.evaluate(() => ({ padding: document.querySelector("#portablePadding").value, columns: document.querySelector("#portableColumns").value, destination: document.querySelector("#portableDestination").value, sameControl: window.originalPaddingControl === document.querySelector("#portablePadding"), help: document.querySelector("#portableExportStatus").textContent })), {
-      padding: "37", columns: "3", destination: "directory", sameControl: true,
+    assert.deepEqual(await page.evaluate(() => ({ padding: document.querySelector("#portablePadding").value, columns: document.querySelector("#portableColumns").value, pngQuality: document.querySelector("#portablePngQuality").value, destination: document.querySelector("#portableDestination").value, sameControl: window.originalPaddingControl === document.querySelector("#portablePadding"), help: document.querySelector("#portableExportStatus").textContent })), {
+      padding: "37", columns: "3", pngQuality: "73", destination: "directory", sameControl: true,
       help: "Exports every profile and animation. Disabled frames remain in the editable source.",
     });
+    assert.equal(await page.locator('[data-export-i18n="pngQuality"]').textContent(), "PNG quality");
+    assert.match(await page.locator("#portableCompressionHelp").textContent(), /100 is lossless/);
+    assert.match(await page.locator("#portableCompressionHelp").textContent(), /Sources stay unchanged/);
+    assert.match(await page.locator("#portablePngQuality").getAttribute("title"), /texture memory usually stays the same/);
+    assert.equal(await page.evaluate(() => document.querySelector("#portablePngQuality").closest(".fieldRow") === document.querySelector("#portableDestination").closest(".fieldRow")), true, "Compression and destination share a compact row");
     await page.locator("#portableDestination").selectOption("download");
     await page.evaluate(() => {
       window.exportStates = [];
       window.addEventListener("frame-tuner-export-state", (event) => window.exportStates.push(event.detail.busy));
       window.startExport = (options = {}) => {
         window.exportOutcome = window.FrameTunerPortable.exportProject({ format: "sequence", download: false, ...options }).then(
-          (result) => ({ ok: true, filename: result.filename }),
+          (result) => { window.lastExportResult = result; return { ok: true, filename: result.filename }; },
           (error) => ({ ok: false, name: error.name, message: error.message }),
         );
       };
@@ -88,6 +95,17 @@ async function test() {
       status: document.querySelector("#portableExportStatus").textContent,
       states: [...window.exportStates],
     }));
+    const invalidQualities = await page.evaluate(async () => {
+      const failures = [];
+      for (const pngQuality of [0, 101, 1.5, "", null, "invalid", true]) {
+        for (const method of ["collectPayload", "exportProject"]) {
+          try { await window.FrameTunerPortable[method]({ pngQuality, destination: "directory" }); failures.push("unexpected success"); }
+          catch (error) { failures.push(error.message); }
+        }
+      }
+      return { failures, states: window.exportStates, busy: window.FrameTunerPortable.busy() };
+    });
+    assert.deepEqual(invalidQualities, { failures: Array(14).fill("PNG quality must be an integer from 1 to 100."), states: [], busy: false }, "Invalid quality is rejected before collecting frames or opening the folder picker");
     const assertConcurrentBlocked = async () => {
       const blocked = await page.evaluate(async () => {
         document.querySelector("#workbenchNewProject").click();
@@ -101,7 +119,7 @@ async function test() {
     const postReached = new Promise((resolve) => { seenPost = resolve; });
     const postGate = new Promise((resolve) => { releasePost = resolve; });
     let postCount = 0;
-    await page.route("**/api/workbench/export", async (route) => { postCount += 1; seenPost(); await postGate; await route.continue(); });
+    await page.route("**/api/workbench/export", async (route) => { postCount += 1; assert.equal(route.request().postDataJSON().pngQuality, 100, "Programmatic export defaults to lossless independently of the UI value"); seenPost(); await postGate; await route.continue(); });
     await start();
     await postReached;
     assert.deepEqual(await state(), { busy: true, disabled: true, status: "Packaging source data and baked assets…", states: [true] });
@@ -110,6 +128,7 @@ async function test() {
     assert.equal((await state()).status, "Packaging source data and baked assets…", "Rejected competitors must not replace the active transaction's progress");
     releasePost();
     assert.deepEqual(await outcome(), { ok: true, filename });
+    assert.equal(await page.evaluate(() => window.lastExportResult.pngCompression.quality), 100, "exportProject returns the server compression report");
     assert.equal(await page.evaluate(() => window.XsxbFrameTunerLite.current().frameIndex), 1, "export must restore the selected frame, not jump to the first frame");
     assert.deepEqual((await state()).states, [true, false], "Packaging must not release and reacquire the lock");
     assert.equal((await state()).busy, false);
@@ -127,8 +146,24 @@ async function test() {
     await page.waitForFunction(() => document.querySelector("#portableExportStatus").textContent === "导出失败：fixture packaging failure");
     assert.equal(await page.locator("#portablePadding").inputValue(), "37");
     assert.equal(await page.locator("#portableColumns").inputValue(), "3");
+    assert.equal(await page.locator("#portablePngQuality").inputValue(), "73");
+    assert.equal(await page.locator('[data-export-i18n="pngQuality"]').textContent(), "PNG 质量");
+    assert.match(await page.locator("#portableCompressionHelp").textContent(), /100 无损/);
+    assert.match(await page.locator("#portablePngQuality").getAttribute("title"), /纹理内存通常不变/);
     await page.locator('[data-language="en"]').click();
     await page.unroute("**/api/workbench/export");
+
+    // Compression statistics are optional, and malformed headers cannot break a ZIP download.
+    const compressionFixture = { quality: 73, files: 2, optimizedFiles: 1, inputBytes: 2048, outputBytes: 1024 };
+    for (const header of [null, "not-json", JSON.stringify({ ...compressionFixture, outputBytes: -1 }), JSON.stringify(compressionFixture)]) {
+      await page.route("**/api/workbench/export", (route) => route.fulfill({ status: 200, contentType: "application/zip", headers: header === null ? {} : { "X-Frame-Tuner-Png-Compression": header }, body: "fixture ZIP" }));
+      const result = await page.evaluate(async () => {
+        const result = await window.FrameTunerPortable.requestPackage({ projectId: "fixture", format: "sheet", pngQuality: 73 });
+        return { filename: result.filename, size: result.blob.size, pngCompression: result.pngCompression };
+      });
+      assert.deepEqual(result, { filename: "fixture_sheet.zip", size: 11, pngCompression: header === JSON.stringify(compressionFixture) ? compressionFixture : null });
+      await page.unroute("**/api/workbench/export");
+    }
 
     // Native folder picking starts synchronously with the lock already held.
     await page.evaluate(() => {
@@ -202,8 +237,8 @@ async function test() {
     assert.equal((await state()).busy, false);
     assert.equal((await state()).status, `Download started with 1 animation · ${filename}`);
 
-    const standalone = await page.evaluate(async () => { const payload = await window.FrameTunerPortable.collectPayload({ format: "sequence" }); return { projectId: payload.projectId, busy: window.FrameTunerPortable.busy() }; });
-    assert.deepEqual(standalone, { projectId, busy: false });
+    const standalone = await page.evaluate(async () => { const payload = await window.FrameTunerPortable.collectPayload({ format: "sequence" }); return { projectId: payload.projectId, pngQuality: payload.pngQuality, busy: window.FrameTunerPortable.busy() }; });
+    assert.deepEqual(standalone, { projectId, pngQuality: 100, busy: false });
     const failure = await page.evaluate(async () => { try { await window.FrameTunerPortable.collectPayload({ format: "invalid" }); } catch (error) { return { message: error.message, busy: window.FrameTunerPortable.busy() }; } });
     assert.deepEqual(failure, { message: "Unsupported export format: invalid", busy: false });
     for (const operation of [{ name: "loading", url: "**/api/config**", run: "reload" }, { name: "saving", url: "**/api/save", run: "save" }]) {
@@ -248,13 +283,17 @@ async function test() {
     });
     for (const destination of ["download", "directory"]) {
       await page.locator("#portableDestination").selectOption(destination);
+      const pngQuality = destination === "download" ? 73 : 100;
+      await page.locator("#portablePngQuality").fill(String(pngQuality));
       for (const format of ["sequence", "sheet", "cocos"]) {
         const expectedFilename = `${projectId}_${format}.zip`;
         const response = page.waitForResponse(response => new URL(response.url()).pathname === "/api/workbench/export");
         const downloaded = destination === "download" ? page.waitForEvent("download") : null;
         await page.evaluate(() => { window.matrixDisk = null; });
         await page.locator(`[data-export-format="${format}"]`).click();
-        assert.equal((await response).status(), 200, `${destination}/${format} packages through real HTTP`);
+        const packageResponse = await response;
+        assert.equal(packageResponse.status(), 200, `${destination}/${format} packages through real HTTP`);
+        assert.equal(packageResponse.request().postDataJSON().pngQuality, pngQuality, `${destination}/${format} sends the quality entered with the keyboard`);
         let bytes;
         if (downloaded) {
           const download = await downloaded;
@@ -267,10 +306,19 @@ async function test() {
         }
         await page.waitForFunction(() => !window.FrameTunerPortable.busy());
         assertArchive(bytes, format);
+        const compression = JSON.parse(packageResponse.headers()["x-frame-tuner-png-compression"]);
+        assert.equal(compression.quality, pngQuality);
+        assert.ok(compression.outputBytes <= compression.inputBytes);
+        assert.ok(compression.files > 0);
+        assert.equal(await page.locator("#portableCompressionStatus").isVisible(), true);
+        assert.match(await page.locator("#portableCompressionStatus").textContent(), /^PNG [\d.]+ (?:KiB|MiB) → [\d.]+ (?:KiB|MiB), [\d.]+% smaller/);
       }
     }
+    await page.locator('[data-language="zh"]').click();
+    await page.waitForFunction(() => document.querySelector("#portableCompressionStatus").textContent.includes("减少"));
+    assert.equal(await page.locator("#portablePngQuality").inputValue(), "100");
     assert.deepEqual(errors, []);
-    return { ok: true, verified: "whole-export lock, delayed HTTP concurrency, save/load exclusion, HTTP/picker/disk failure recovery, disk commit, Chinese/supplementary Unicode ZIP download and directory filenames in all three formats through actual controls with archived source verification, initial-ready and independent collectPayload, translated labels/status with preserved inputs" };
+    return { ok: true, verified: "whole-export lock, delayed HTTP concurrency, save/load exclusion, HTTP/picker/disk failure recovery, disk commit, Chinese/supplementary Unicode ZIP download and directory filenames in all three formats through actual controls with byte-identical archived sources, keyboard PNG quality with lossless API defaults and early validation, optional compression headers and compact statistics, initial-ready and independent collectPayload, translated labels/status with preserved inputs" };
   } finally {
     releasePost?.();
     releaseConfig?.();

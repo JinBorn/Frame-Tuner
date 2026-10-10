@@ -10,7 +10,7 @@
 
 ## 启动与使用
 
-安装 Node.js 20+，在仓库目录运行：
+安装 Node.js 20.9+，在仓库目录运行：
 
 ```sh
 npm install
@@ -36,7 +36,7 @@ npm start
 - 框体：编辑 hitbox、hurtbox、collisionbox 元数据，导出后由游戏决定如何使用。
 - 统一透明画布：在导出时按可见内容计算，同一角色切换动作保持一致原点。
 
-Web 编辑器运行在本机。CLI 导出复用相同的画面合成器，需已安装 Chrome、Edge 或 Chromium；`npm install` 安装 `playwright-core`，不会自动下载一套浏览器。
+Web 编辑器运行在本机。CLI 导出复用相同的画面合成器，需已安装 Chrome、Edge 或 Chromium；`npm install` 安装浏览器控制与 PNG 压缩依赖，不会自动下载一套浏览器。
 
 ## 导出与引擎支持
 
@@ -50,6 +50,8 @@ Web 编辑器运行在本机。CLI 导出复用相同的画面合成器，需已
 
 导出保留当前编辑效果；图层、变换和插入的拖尾烘焙到透明帧中。帧时长、源帧映射、音效事件和支持的框体数据随元数据保存。通用格式为其他引擎提供接入边界，并不宣称已经为所有引擎实现原生适配。
 
+“导出资源包”的 PNG 质量默认为 **100（无损）**；设为 1–99 时允许减少颜色精度，以进一步缩小运行图片。Sheet、PNG 序列、Cocos 运行资源和旧 Lite 目录导出使用同一设置，压缩后不会增大单张 PNG。源图片及 Cocos 的 `frame-tuner-source/` 备份保持原样，导出结果显示 PNG 压缩前后的大小。PNG 压缩主要减少包体；相同分辨率下，Cocos 解码后的纹理内存通常不会减少，降低纹理内存需在 Cocos 按目标平台配置纹理压缩或减小分辨率。
+
 Cocos 包包含 `assets/resources/frame-tuner/<项目ID>/` 下的素材与 manifest，以及 `assets/scripts/frame-tuner/` 下的 `FrameTunerPlayer`、数据类型和播放时钟。把生成的 `assets` 合入指定项目，在 Canvas 下的节点添加播放器，加载 manifest 后播放指定动作。支持循环/单次、暂停/继续、不等时长、禁用帧、朝向翻转、音效事件和框体查询。框体不会自动变成物理碰撞器，导出不会改写游戏业务代码。详见 [Cocos 3.8.8 接入](docs/cocos-3.8.8.md)。
 
 ## 命令行与 Agent
@@ -62,7 +64,7 @@ node tools/frame_tuner.js export --project hero --format sheet --out "D:/Exports
 node tools/frame_tuner.js export --project hero --format cocos --out "D:/Exports/HeroCocos"
 ```
 
-Sheet 导入使用 `--input <图集.png> --json <图集.json>`。导出支持 `--format sequence|sheet|cocos`，使用 `--zip --out <文件.zip>` 可打包 ZIP。自动发现浏览器失败时指定 `--browser <可执行文件>`，或设置 `FRAME_TUNER_BROWSER`。
+Sheet 导入使用 `--input <图集.png> --json <图集.json>`。导出支持 `--format sequence|sheet|cocos`，使用 `--zip --out <文件.zip>` 可打包 ZIP；`--png-quality 1..100` 配置 PNG 质量，默认 100 无损，返回 JSON 的 `pngCompression` 记录实际压缩大小。自动发现浏览器失败时指定 `--browser <可执行文件>`，或设置 `FRAME_TUNER_BROWSER`。
 
 命令返回 JSON，失败使用非零退出码。导入与验证无需浏览器；图片导出使用无头浏览器，不要求点击网页或操作系统目录选择器。`node tools/frame_tuner.js --help` 可查看完整参数。
 

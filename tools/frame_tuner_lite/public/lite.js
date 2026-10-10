@@ -16,7 +16,7 @@
             <label class="number"><span>Sheet 列数</span><input id="liteSheetColumns" type="number" min="1" max="64" step="1" value="8"></label>
           </div>
           <div class="liteCanvasResult"><span>全角色统一画布</span><strong id="liteCanvasResult">等待计算</strong></div>
-          <p class="liteExportHelp">棍子只负责绘制拖尾轨迹；拖尾必须在“拖尾插入”中逐帧加入。导出时每张可播放源帧只生成一张透明烘焙帧，主帧、附加帧和该帧拖尾会合成到同一张 PNG，并保持全角色统一画布和稳定角色原点。附属图层不会重复导出。</p>
+          <p class="liteExportHelp">棍子只负责绘制拖尾轨迹；拖尾必须在“拖尾插入”中逐帧加入。导出时每张可播放源帧只生成一张透明烘焙帧，主帧、附加帧和该帧拖尾会合成到同一张 PNG，并保持全角色统一画布和稳定角色原点。附属图层不会重复导出。PNG 压缩沿用上方“导出资源包”的质量设置，默认 100 无损。</p>
           <button id="liteMeasureCanvas" type="button" class="secondary liteMeasureButton">重新计算全角色画布</button>
           <div class="liteExportActions">
             <button id="liteExportSequence" type="button" class="liteExportButton">导出 PNG 序列</button>
@@ -80,6 +80,7 @@
     return {
       padding: Math.round(number(input("liteCanvasPadding").value, 0, 1024, 24)),
       columns: Math.round(number(input("liteSheetColumns").value, 1, 64, 8)),
+      pngQuality: Number(input("portablePngQuality")?.value ?? 100),
     };
   }
 
@@ -239,10 +240,19 @@
     }
   }
 
-  async function writeDataUrl(directory, filename, dataUrl) {
-    const response = await fetch(dataUrl);
-    if (!response.ok) throw new Error(`无法生成 ${filename}`);
+  async function writeDataUrl(directory, filename, dataUrl, pngOptions) {
+    const response = await fetch("/api/workbench/compress-png", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...pngOptions, data: dataUrl }),
+    });
+    if (!response.ok) {
+      const message = await response.text();
+      let error;
+      try { error = JSON.parse(message).error; } catch {}
+      throw new Error(error || message || `无法生成 ${filename}`);
+    }
     await writeBlob(directory, filename, await response.blob());
+    return JSON.parse(response.headers.get("x-frame-tuner-png-compression"));
   }
 
   async function writeJson(directory, filename, value) {
@@ -365,6 +375,7 @@
     input("liteMeasureCanvas").disabled = true;
     const originalGroupId = current.groupId;
     try {
+      if (!Number.isInteger(config.pngQuality) || config.pngQuality < 1 || config.pngQuality > 100) throw new Error("PNG 质量必须是 1–100 的整数。");
       if (typeof window.showDirectoryPicker !== "function") throw new Error("当前浏览器不支持文件夹选择；请使用最新版 Edge 或 Chrome 打开本地 Lite 页面。");
       status.textContent = "请选择导出目录";
       const chosenDirectory = await window.showDirectoryPicker({
@@ -386,6 +397,12 @@
       const batchDirectory = await chosenDirectory.getDirectoryHandle(batchName, { create: true });
       const packagedAudio = await packageAudioAssets(batch.targets, batchDirectory, status);
       let totalFrames = 0;
+      const compression = { inputBytes: 0, outputBytes: 0 };
+      const writePng = async (directory, filename, data) => {
+        const report = await writeDataUrl(directory, filename, data, { projectId: current.projectId, pngQuality: config.pngQuality });
+        compression.inputBytes += report?.inputBytes || 0;
+        compression.outputBytes += report?.outputBytes || 0;
+      };
       for (let groupIndex = 0; groupIndex < batch.targets.length; groupIndex += 1) {
         const target = batch.targets[groupIndex];
         const selected = await api.selectGroup(target.groupId);
@@ -415,7 +432,7 @@
           const column = sample.index % config.columns;
           const row = Math.floor(sample.index / config.columns);
           if (kind === "sequence") {
-            await writeDataUrl(targetDirectory, filename, data);
+            await writePng(targetDirectory, filename, data);
           } else {
             const image = await imageFromDataUrl(data);
             context.drawImage(image, column * renderConfig.width, row * renderConfig.height, renderConfig.width, renderConfig.height);
@@ -433,7 +450,7 @@
         }
         if (kind === "sheet") {
           status.textContent = `正在写入 ${groupIndex + 1}/${batch.targets.length} · ${target.name} Sheet + JSON`;
-          await writeDataUrl(targetDirectory, "spritesheet.png", sheet.toDataURL("image/png"));
+          await writePng(targetDirectory, "spritesheet.png", sheet.toDataURL("image/png"));
           await writeJson(targetDirectory, "spritesheet.json", sheetJson(metadataFrames, { width: sheetWidth, height: sheetHeight }, state.layout, audio));
         }
         if (kind === "sequence") {
@@ -453,6 +470,7 @@
       status.textContent = kind === "sheet"
         ? `已导出当前角色 ${batch.targets.length} 组 Sheet + JSON（共 ${totalFrames} 帧）\n${chosenDirectory.name}\\${batchName}`
         : `已导出当前角色 ${batch.targets.length} 组 PNG 序列（共 ${totalFrames} 帧）\n${chosenDirectory.name}\\${batchName}`;
+      status.textContent += `\nPNG ${(compression.inputBytes / 1024).toFixed(1)} KiB → ${(compression.outputBytes / 1024).toFixed(1)} KiB`;
     } catch (error) {
       status.textContent = error?.name === "AbortError" ? "已取消导出" : `导出失败：${error.message}`;
     } finally {

@@ -21,10 +21,11 @@
     "typecheck:cocos": "node tools/cocos/typecheck.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.9.0"
   },
   "dependencies": {
-    "playwright-core": "^1.63.0"
+    "playwright-core": "^1.63.0",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

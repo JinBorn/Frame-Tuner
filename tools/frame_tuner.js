@@ -13,18 +13,18 @@ const HELP = {
     create: "create --name NAME [--id ID]",
     import: "import --project ID --input PNG_DIRECTORY --profile PROFILE --animation ANIMATION [--fps 12] [--replace] (sheet: --input SHEET.png --json SHEET.json)",
     validate: "validate --project ID",
-    export: "export --project ID --format sequence|sheet|cocos --out DIRECTORY [--zip] [--browser EXECUTABLE] [--padding 24] [--columns 8]",
+    export: "export --project ID --format sequence|sheet|cocos --out DIRECTORY [--zip] [--browser EXECUTABLE] [--padding 24] [--columns 8] [--png-quality 100]",
   },
   environment: { FRAME_TUNER_ROOT: "Data and workspace root; defaults to this repository.", FRAME_TUNER_BROWSER: "Chrome, Edge or Chromium executable used by the canvas exporter." },
   output: "JSON on stdout; diagnostics on stderr; nonzero exit status on failure.",
-  exportDependency: "Visual exports run the actual browser canvas compositor through playwright-core. Install dependencies with npm install and install Chrome/Edge/Chromium, or provide --browser.",
+  exportDependency: "Visual exports run the browser canvas compositor through playwright-core and optimize runtime PNGs with sharp. PNG quality is 1..100, default 100 (lossless); source images are unchanged. Install dependencies with npm install and install Chrome/Edge/Chromium, or provide --browser.",
 };
 
 function parseArgs(argv) {
   const [command = "help", ...rest] = argv;
   const args = {};
   const boolean = new Set(["replace", "zip", "help"]);
-  const known = new Set(["name", "id", "project", "input", "json", "profile", "animation", "fps", "format", "out", "browser", "padding", "columns", ...boolean]);
+  const known = new Set(["name", "id", "project", "input", "json", "profile", "animation", "fps", "format", "out", "browser", "padding", "columns", "png-quality", ...boolean]);
   for (let index = 0; index < rest.length; index += 1) {
     const item = rest[index];
     if (!item.startsWith("--")) throw new Error(`Unexpected argument: ${item}`);
@@ -37,7 +37,7 @@ function parseArgs(argv) {
     }
   }
   if (command === "export") {
-    for (const [key, minimum, maximum] of [["padding", 0, 1024], ["columns", 1, 64]]) {
+    for (const [key, minimum, maximum] of [["padding", 0, 1024], ["columns", 1, 64], ["png-quality", 1, 100]]) {
       if (args[key] === undefined) continue;
       const value = Number(args[key]);
       if (!String(args[key]).trim() || !Number.isInteger(value) || value < minimum || value > maximum) {
@@ -169,11 +169,11 @@ async function exportHeadless(service, args) {
     page.on("pageerror", (error) => process.stderr.write(`Browser: ${error.message}\n`));
     await page.goto(`${server.url}/?project=${encodeURIComponent(projectId)}&export=1`, { waitUntil: "networkidle", timeout: 30000 });
     await page.waitForFunction(() => window.FrameTunerPortable && window.XsxbFrameTunerLite?.current().ready, null, { timeout: 30000 });
-    const payload = await page.evaluate(async (options) => window.FrameTunerPortable.collectPayload(options), { format, padding: args.padding === undefined ? 24 : Number(args.padding), columns: args.columns === undefined ? 8 : Number(args.columns) });
+    const payload = await page.evaluate(async (options) => window.FrameTunerPortable.collectPayload(options), { format, padding: args.padding === undefined ? 24 : Number(args.padding), columns: args.columns === undefined ? 8 : Number(args.columns), pngQuality: args["png-quality"] === undefined ? 100 : Number(args["png-quality"]) });
     const result = await buildExportPackage(payload, { root: service.root, projectData: service.projectData(projectId) });
     if (args.zip) { fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(output, result.buffer, { flag: "wx" }); }
     else writePackageDirectory(output, result.files);
-    return { ok: true, projectId, format, output, archive: Boolean(args.zip), files: result.files.size, animations: payload.manifest.animations.length, frames: payload.manifest.animations.reduce((sum, animation) => sum + animation.frames.length, 0), renderer: "browser-canvas", browser: executablePath };
+    return { ok: true, projectId, format, output, archive: Boolean(args.zip), files: result.files.size, animations: payload.manifest.animations.length, frames: payload.manifest.animations.reduce((sum, animation) => sum + animation.frames.length, 0), pngCompression: result.pngCompression, renderer: "browser-canvas", browser: executablePath };
   } finally {
     try { await browser?.close(); } finally { server.child.kill(); }
   }

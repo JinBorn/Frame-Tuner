@@ -3,10 +3,12 @@
   const SCHEMA = "frame-tuner-package-v1";
   let activeOperation = null;
   let statusMessage = { key: "ready", values: {} };
+  let pngCompression = null;
   const messages = {
     zh: {
       title: "导出资源包", description: "透明烘焙 · 时序、框体、音效与可编辑源数据", padding: "边距 px", columns: "图集列数", destination: "导出方式",
-      download: "下载 ZIP", directory: "选择目录保存 ZIP", sequence: "PNG 序列", sheet: "Sheet + JSON", cocos: "Cocos 3.8.8", legacyTitle: "兼容：直接导出到目录",
+      pngQuality: "PNG 质量", compressionHelp: "100 无损，1–99 减色压缩；源图不变。", compressionMemoryHelp: "PNG 压缩减小资源文件；相同尺寸下，Cocos 解码后的纹理内存通常不变。", invalidPngQuality: "PNG 质量必须是 1–100 的整数。", compressionResult: "PNG {before} → {after}，减少 {reduction}%（{optimized}/{files} 张）",
+      download: "下载 ZIP", directory: "目录保存 ZIP", sequence: "PNG 序列", sheet: "Sheet + JSON", cocos: "Cocos 3.8.8", legacyTitle: "兼容：直接导出到目录",
       ready: "导出全部素材集与动作，禁用帧保留在源数据中。", choosingDirectory: "请选择 ZIP 保存目录…", preparing: "准备导出…",
       measuring: "测量画布 · {name} · {frame}/{frames}", baking: "烘焙 {animation}/{animations} · {name} · {frame}/{frames}", packaging: "打包原始数据与烘焙资源…",
       saving: "保存 ZIP · {filename}", downloading: "正在发起 ZIP 下载 · {filename}", saved: "已保存 {count} 个动作 · {filename}", downloadStarted: "已发起下载，包含 {count} 个动作 · {filename}", packaged: "资源包已就绪，包含 {count} 个动作 · {filename}",
@@ -18,7 +20,8 @@
     },
     en: {
       title: "Export package", description: "Transparent frames · timing, boxes, audio and editable source", padding: "Padding px", columns: "Sheet columns", destination: "Destination",
-      download: "Download ZIP", directory: "Save ZIP to a folder", sequence: "PNG sequence", sheet: "Sheet + JSON", cocos: "Cocos 3.8.8", legacyTitle: "Legacy: export files to a folder",
+      pngQuality: "PNG quality", compressionHelp: "100 is lossless; 1–99 reduces colors. Sources stay unchanged.", compressionMemoryHelp: "PNG compression reduces file size. At the same dimensions, decoded Cocos texture memory usually stays the same.", invalidPngQuality: "PNG quality must be an integer from 1 to 100.", compressionResult: "PNG {before} → {after}, {reduction}% smaller ({optimized}/{files} images)",
+      download: "Download ZIP", directory: "Save to folder", sequence: "PNG sequence", sheet: "Sheet + JSON", cocos: "Cocos 3.8.8", legacyTitle: "Legacy: export files to a folder",
       ready: "Exports every profile and animation. Disabled frames remain in the editable source.", choosingDirectory: "Choose a folder for the ZIP…", preparing: "Preparing export…",
       measuring: "Measuring canvas · {name} · {frame}/{frames}", baking: "Baking {animation}/{animations} · {name} · {frame}/{frames}", packaging: "Packaging source data and baked assets…",
       saving: "Saving ZIP · {filename}", downloading: "Starting ZIP download · {filename}", saved: "Saved {count} animation{plural} · {filename}", downloadStarted: "Download started with {count} animation{plural} · {filename}", packaged: "Package ready with {count} animation{plural} · {filename}",
@@ -50,6 +53,8 @@
   function beginOperation() {
     if (busy()) throw exportError("busy");
     activeOperation = Symbol("export");
+    pngCompression = null;
+    renderCompression();
     setButtonsDisabled(true);
     window.dispatchEvent(new CustomEvent("frame-tuner-export-state", { detail: { busy: true } }));
     return activeOperation;
@@ -62,6 +67,25 @@
   }
   const safe = (value) => String(value || "animation").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/^\.+|\.+$/g, "").slice(0, 100) || "animation";
   const clamp = (value, min, max, fallback) => Number.isFinite(Number(value)) ? Math.max(min, Math.min(max, Number(value))) : fallback;
+  function validatePngQuality(value = 100) {
+    if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "") throw exportError("invalidPngQuality");
+    const quality = Number(value);
+    if (!Number.isInteger(quality) || quality < 1 || quality > 100) throw exportError("invalidPngQuality");
+    return quality;
+  }
+  function formatBytes(bytes) {
+    return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+  }
+  function renderCompression() {
+    const element = document.querySelector("#portableCompressionStatus");
+    if (!element) return;
+    element.hidden = !pngCompression;
+    element.textContent = pngCompression ? t("compressionResult", {
+      before: formatBytes(pngCompression.inputBytes), after: formatBytes(pngCompression.outputBytes),
+      reduction: (pngCompression.inputBytes ? (1 - pngCompression.outputBytes / pngCompression.inputBytes) * 100 : 0).toFixed(1),
+      optimized: pngCompression.optimizedFiles, files: pngCompression.files,
+    }) : "";
+  }
   function renderStatus() { const element = document.querySelector("#portableExportStatus"); if (element) element.textContent = t(statusMessage.key, statusMessage.values); }
   function notify(key, values = {}, callback) { statusMessage = { key, values }; renderStatus(); callback?.(t(key, values)); }
   function unionBounds(a, b) {
@@ -117,6 +141,7 @@
 
   async function collectPayload(options = {}) {
     if (busy()) throw exportError("busy");
+    options = { ...options, pngQuality: validatePngQuality(options.pngQuality) };
     const api = window.XsxbFrameTunerLite;
     if (!api) throw exportError("missingApi");
     // Initial editor loading must still be allowed to select its first group.
@@ -230,7 +255,7 @@
         }
         manifest.animations.push(animation);
       }
-      return { projectId: original.projectId, format, manifest, files, source };
+      return { projectId: original.projectId, format, pngQuality: options.pngQuality, manifest, files, source };
     } finally {
       if (original.groupId) await api.selectGroup(original.groupId, {
         exportOperation: true, frameIndex: original.frameIndex, preserveView: true,
@@ -244,16 +269,26 @@
       const text = await response.text();
       try { throw new Error(JSON.parse(text).error || text); } catch (error) { if (error instanceof SyntaxError) throw new Error(text); throw error; }
     }
-    return { blob: await response.blob(), filename: `${safe(payload.projectId)}_${payload.format}.zip` };
+    let compression = null;
+    try {
+      const value = JSON.parse(response.headers.get("X-Frame-Tuner-Png-Compression"));
+      if (value && Number.isInteger(value.quality) && value.quality >= 1 && value.quality <= 100 &&
+        [value.files, value.optimizedFiles, value.inputBytes, value.outputBytes].every((item) => Number.isSafeInteger(item) && item >= 0) &&
+        value.optimizedFiles <= value.files && value.outputBytes <= value.inputBytes) compression = value;
+    } catch {} // Older servers may omit compression statistics.
+    return { blob: await response.blob(), filename: `${safe(payload.projectId)}_${payload.format}.zip`, pngCompression: compression };
   }
 
   async function exportProject(options = {}) {
     if (busy()) throw exportError("busy");
     try {
+      options = { ...options, pngQuality: validatePngQuality(options.pngQuality) };
       const current = window.XsxbFrameTunerLite?.current();
       checkEditorOperation(current);
       if (!current?.ready) throw exportError("projectNotReady");
     } catch (error) {
+      pngCompression = null;
+      renderCompression();
       notify("failed", { error });
       throw error;
     }
@@ -286,6 +321,8 @@
         completed = "downloadStarted";
       }
       notify(completed, { count: payload.manifest.animations.length, filename: result.filename }, options.onProgress);
+      pngCompression = result.pngCompression;
+      renderCompression();
       return { ...result, manifest: payload.manifest };
     } catch (error) {
       notify(error.name === "AbortError" ? "cancelled" : "failed", { error });
@@ -300,9 +337,12 @@
   }
   function localize() {
     document.querySelectorAll("#portableExportPanel [data-export-i18n]").forEach((element) => { element.textContent = t(element.dataset.exportI18n); });
+    const quality = document.querySelector("#portablePngQuality");
+    if (quality) quality.title = t("compressionMemoryHelp");
     const legacyHeading = document.querySelector("#liteExportPanel summary h2");
     if (legacyHeading) legacyHeading.textContent = t("legacyTitle");
     renderStatus();
+    renderCompression();
   }
   function initialize() {
     if (document.querySelector("#portableExportPanel")) { localize(); return; }
@@ -311,10 +351,10 @@
     if (!slot && !save) return;
     const panel = document.createElement("details");
     panel.id = "portableExportPanel"; panel.className = "panel portableExportPanel"; panel.open = true;
-    panel.innerHTML = `<summary><h2 data-export-i18n="title"></h2></summary><div class="portableExportBody"><p class="muted" data-export-i18n="description"></p><div class="fieldRow"><label><span data-export-i18n="padding"></span><input id="portablePadding" type="number" min="0" max="1024" value="24"></label><label><span data-export-i18n="columns"></span><input id="portableColumns" type="number" min="1" max="64" value="8"></label></div><label><span data-export-i18n="destination"></span><select id="portableDestination"><option value="download" data-export-i18n="download"></option>${typeof window.showDirectoryPicker === "function" ? '<option value="directory" data-export-i18n="directory"></option>' : ""}</select></label><div class="portableExportActions"><button type="button" data-export-format="sequence" data-export-i18n="sequence"></button><button type="button" data-export-format="sheet" data-export-i18n="sheet"></button><button type="button" data-export-format="cocos" data-export-i18n="cocos"></button></div><p id="portableExportStatus" role="status" aria-live="polite"></p></div>`;
+    panel.innerHTML = `<summary><h2 data-export-i18n="title"></h2></summary><div class="portableExportBody"><p class="muted" data-export-i18n="description"></p><div class="fieldRow"><label><span data-export-i18n="padding"></span><input id="portablePadding" type="number" min="0" max="1024" value="24"></label><label><span data-export-i18n="columns"></span><input id="portableColumns" type="number" min="1" max="64" value="8"></label></div><div class="fieldRow"><label><span data-export-i18n="destination"></span><select id="portableDestination"><option value="download" data-export-i18n="download"></option>${typeof window.showDirectoryPicker === "function" ? '<option value="directory" data-export-i18n="directory"></option>' : ""}</select></label><label><span data-export-i18n="pngQuality"></span><input id="portablePngQuality" type="number" min="1" max="100" step="1" value="100" aria-describedby="portableCompressionHelp"></label></div><p id="portableCompressionHelp" class="muted" data-export-i18n="compressionHelp"></p><div class="portableExportActions"><button type="button" data-export-format="sequence" data-export-i18n="sequence"></button><button type="button" data-export-format="sheet" data-export-i18n="sheet"></button><button type="button" data-export-format="cocos" data-export-i18n="cocos"></button></div><p id="portableExportStatus" role="status" aria-live="polite"></p><p id="portableCompressionStatus" class="muted" hidden></p></div>`;
     if (slot) slot.append(panel); else save.before(panel);
     panel.querySelectorAll("[data-export-format]").forEach((button) => button.addEventListener("click", () => {
-      exportProject({ format: button.dataset.exportFormat, padding: document.querySelector("#portablePadding").value, columns: document.querySelector("#portableColumns").value, destination: document.querySelector("#portableDestination").value }).catch(() => {});
+      exportProject({ format: button.dataset.exportFormat, padding: document.querySelector("#portablePadding").value, columns: document.querySelector("#portableColumns").value, destination: document.querySelector("#portableDestination").value, pngQuality: document.querySelector("#portablePngQuality").value }).catch(() => {});
     }));
     const oldPanel = document.querySelector("#liteExportPanel");
     if (oldPanel) {

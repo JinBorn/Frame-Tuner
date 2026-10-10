@@ -327,6 +327,8 @@ button.save:hover { background: var(--accent-dark); }
 .importProgress { margin-right: auto; font-size: 10px; color: var(--accent); }
 .portableExportBody { display: grid; gap: 10px; padding-top: 4px; }
 .portableExportBody .fieldRow { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; color: var(--muted); font-size: 10px; }
+.portableExportBody .fieldRow:has(#portableDestination) { grid-template-columns: minmax(0, 1fr) 68px; align-items: end; }
+.portableExportBody #portableDestination, .portableExportBody #portablePngQuality { height: 33px; padding: 6px; }
 .portableExportBody label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; }
 .portableExportBody input, .portableExportBody select { width: 100%; min-width: 0; }
 .portableExportBody .muted { color: var(--muted); font-size: 10px; line-height: 1.8; margin: 0; }
